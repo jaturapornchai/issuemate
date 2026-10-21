@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+build
+.env*
+!.env.example
+*.pem
+*.key
+credentials*.json
+*.tsbuildinfo
+next-env.d.ts
+playwright-report
+test-results
+demo-video
+*.tar.gz
+*.zip

@@ -1,0 +1,35 @@
+# IssueMate — AI-Ready GitHub-Style Issue Tracker, Roadmap & Live Monitor (MCP v2.0)
+
+> ระบบบริหารจัดการปัญหา (Bug Tracker), กระดานโหวตไอเดียและแผนพัฒนาผลิตภัณฑ์ (Feature Voting & Product Roadmap) รองรับการแยกหลายโปรเจกต์ แนบรูปภาพและเอกสารหลายไฟล์ (รวมถึงกด Ctrl+V วางภาพแคปหน้าจอ) เก็บลง MinIO S3 และฐานข้อมูล MongoDB พร้อมเชื่อมต่อกับ AI Agents ทุกตัวผ่าน MCP Server v2.0 และ REST API
+
+## Core Features (Inspired by Top GitHub Projects: Plane, Huly, Fider, Kaneo & Pile)
+- Multi-Project Workspaces: แยกโปรเจกต์อิสระและสร้างโปรเจกต์ใหม่ได้ทันที (เช่น BCAI, POS, INFRA)
+- Multi-File & Clipboard Paste (Ctrl+V): ลากวางรูปภาพหลายภาพและเอกสารหลายไฟล์ หรือกด Ctrl+V วางภาพแคปหน้าจออัปโหลดเข้า MinIO ทันที
+- Sub-tasks & AI Checklist Breakdown: แตกงานย่อยเป็น Checklist พร้อมหลอดความคืบหน้า % และปุ่มให้ AI แตกงานย่อยอัตโนมัติ
+- GitHub-Style Emoji Reactions & Linked Issues: กดส่งอีโมจิ (`👍`, `❤️`, `🎉`, `🚀`, `👀`) บน Issue และ Comment พร้อมผูก Issue ที่เกี่ยวข้อง (`relatedCodes`)
+- Live Duplicate / Similar Issue Detector: ตรวจจับเรื่องซ้ำอัตโนมัติขณะกำลังพิมพ์หัวข้อแจ้งปัญหาใหม่
+- Feature Voting & Product Roadmap Portal: กระดานจัดอันดับความต้องการยอดนิยม (Upvote Leaderboard) และติดตาม 4 ระยะ (Proposed -> In Development -> Review -> Shipped)
+- Command Palette (`Ctrl+K`): ค้นหาข้ามโปรเจกต์และสั่งงานด่วนจากคีย์บอร์ด
+- Live Monitor Dashboard: ติดตาม KPI, SLA, งานวิกฤตค้างอยู่ (Critical Watchlist), ภาระงานทีม (Team Workload) และ Live Activity Stream
+
+## MCP Server v2.0 Endpoints & 14 Tools for AI Agents
+- Streamable HTTP Endpoints: `http://localhost:3300/mcp` และ `http://localhost:3300/api/mcp`
+- Stdio Command: `npx tsx D:/issuemate/mcp-stdio.ts`
+- MCP Resources: `issuemate://context`
+- MCP Prompts: `ai-triage-and-plan`, `ai-collaborate-on-issue`
+
+### Available MCP Tools (14 Tools):
+1. `get_ai_context`: เรียกเป็นอันดับแรก! ดึงรายชื่อโปรเจกต์ ค่า Enum ที่ถูกต้อง และงานด่วนทั้งหมดในคำสั่งเดียว
+2. `converse_on_issue`: ให้ AI เข้ามาพูดคุยตอบกลับ แนบไฟล์เข้า MinIO ติ๊กถูกงานย่อย กดอีโมจิ และเปลี่ยนสถานะ/ปิดงานในคำสั่งเดียว
+3. `claim_and_plan_issue`: ให้ AI รับงาน (`in_progress`), บันทึกบทวิเคราะห์ (`aiSummary`), และสร้างรายการงานย่อย (`subtasks`)
+4. `create_issue`: สร้าง Issue ใหม่ รองรับการส่ง `subtasks`, แนบไฟล์ (`files` ข้อความหรือ Base64) เข้า MinIO โดยตรง, สร้างโปรเจกต์อัตโนมัติ และตรวจเรื่องซ้ำ
+5. `batch_create_issues`: สร้างหลาย Issues พร้อมกันจากการสแกนโค้ดหรือแตกงานจาก PRD
+6. `find_similar_issues`: ค้นหาเรื่องที่คล้ายคลึงกันเพื่อป้องกันการแจ้งซ้ำ
+7. `manage_subtasks`: เพิ่มหรือติ๊กถูกงานย่อยตามลำดับข้อ (`1, 2, ...`) หรือชื่อเรื่อง
+8. `get_issue`: อ่านรายละเอียดเชิงลึกของ Issue ไฟล์แนบ คอมเมนต์ทั้งหมด และประวัติ Timeline
+9. `list_issues`: ค้นหาและกรองรายการ Issues
+10. `update_issue`: อัปเดตสถานะ ความสำคัญ ผูกเรื่อง (`relatedCodes`) หรือปิด Issue
+11. `add_comment`: เพิ่มความคิดเห็นพร้อมแนบไฟล์และสั่งปิด/เปิด Issue
+12. `list_projects`: ดึงรายการโปรเจกต์พร้อมสถิติงานค้าง
+13. `create_project`: สร้างโปรเจกต์ใหม่
+14. `get_monitor_summary`: ดึงข้อมูลสรุป Monitor Dashboard และ SLA
