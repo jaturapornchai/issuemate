@@ -31,4 +31,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
+  webServer: process.env.PLAYWRIGHT_BASE_URL
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: "http://localhost:3300/api/auth/me",
+        reuseExistingServer: true,
+        timeout: 60000,
+      },
 });
