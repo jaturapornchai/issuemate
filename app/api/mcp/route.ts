@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createIssueMateMcpServer } from "@/lib/mcp-server";
-import { verifyMcpRequestToken, getMcpAuthSettings } from "@/lib/mcp-tokens";
+import { verifyMcpRequestToken } from "@/lib/mcp-tokens";
 
 export const runtime = "nodejs";
 
@@ -48,7 +48,8 @@ export async function POST(req: Request) {
     });
     const mcpServer = createIssueMateMcpServer(
       authCheck.tokenRecord,
-      authCheck.boundProjectKey
+      authCheck.boundProjectKey,
+      authCheck.owner
     );
     await mcpServer.connect(transport);
     return await transport.handleRequest(normalizedReq);
@@ -66,9 +67,6 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  const settings = await getMcpAuthSettings().catch(() => ({
-    enforceTokenAuth: false,
-  }));
   return NextResponse.json({
     name: "issuemate-devops-mcp-server",
     version: "3.0.0",
@@ -76,7 +74,7 @@ export async function GET() {
     endpoints: ["/mcp", "/api/mcp"],
     tokenAuth: {
       supported: true,
-      enforceTokenAuth: settings.enforceTokenAuth,
+      enforceTokenAuth: true,
       methods: [
         "Authorization: Bearer ism_live_<token> + X-MCP-Project: <PROJECT_KEY>",
         "x-mcp-token: ism_live_<token>",

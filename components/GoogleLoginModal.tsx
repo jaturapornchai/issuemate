@@ -16,11 +16,15 @@ import {
   Trash2,
   Crown,
   RotateCcw,
-  Mail,
   FolderPlus,
   FolderKanban,
 } from "lucide-react";
-import type { AuthUser, AllowedUserRecord } from "@/lib/auth";
+import {
+  type AuthUser,
+  type AllowedUserRecord,
+  type ProjectPermissionLevel,
+  PROJECT_PERMISSION_CONFIG,
+} from "@/lib/permissions";
 import type { ProjectRecord } from "@/lib/types";
 
 export function GoogleIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -83,11 +87,15 @@ export function GoogleLoginModal({
   const [superAdminMasked, setSuperAdminMasked] = useState("a***n@example.com");
   const [allowedUsers, setAllowedUsers] = useState<AllowedUserItem[]>([]);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [loginEmailInput, setLoginEmailInput] = useState("");
   const [newGmail, setNewGmail] = useState("");
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<"member" | "admin">("member");
   const [selectedMemberProjects, setSelectedMemberProjects] = useState<string[]>(["ALL"]);
+  const [newDefaultPermission, setNewDefaultPermission] =
+    useState<ProjectPermissionLevel>("reporter");
+  const [newProjectPermissions, setNewProjectPermissions] = useState<
+    Record<string, ProjectPermissionLevel>
+  >({});
 
   // Admin Create Project State
   const [newProjKey, setNewProjKey] = useState("");
@@ -140,8 +148,7 @@ export function GoogleLoginModal({
     setSelectedMemberProjects((prev) => {
       const withoutAll = prev.filter((k) => k !== "ALL");
       if (withoutAll.includes(projKey)) {
-        const next = withoutAll.filter((k) => k !== projKey);
-        return next.length === 0 ? ["ALL"] : next;
+        return withoutAll.filter((k) => k !== projKey);
       }
       return [...withoutAll, projKey];
     });
@@ -152,15 +159,16 @@ export function GoogleLoginModal({
     projKey: string
   ) => {
     if (targetUser.email.includes("***")) return;
-    const currentProjs = targetUser.allowedProjects || ["ALL"];
+    const currentProjs = Array.isArray(targetUser.allowedProjects)
+      ? targetUser.allowedProjects
+      : ["ALL"];
     let nextProjs: string[];
     if (projKey === "ALL") {
       nextProjs = ["ALL"];
     } else if (currentProjs.includes("ALL")) {
       nextProjs = [projKey];
     } else if (currentProjs.includes(projKey)) {
-      const filtered = currentProjs.filter((k) => k !== projKey);
-      nextProjs = filtered.length === 0 ? ["ALL"] : filtered;
+      nextProjs = currentProjs.filter((k) => k !== projKey);
     } else {
       nextProjs = [...currentProjs, projKey];
     }
@@ -173,18 +181,88 @@ export function GoogleLoginModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "update_allowed_user",
-          adminEmail: user?.email,
           email: targetUser.email,
           name: targetUser.name,
           role: targetUser.role,
           allowedProjects: nextProjs,
+          defaultPermission: targetUser.defaultPermission || "reporter",
+          projectPermissions: targetUser.projectPermissions || {},
         }),
       });
       const data = await res.json();
       if (res.ok && Array.isArray(data.allowedUsers)) {
         setAllowedUsers(data.allowedUsers);
+        if (user?.email === targetUser.email) {
+          const updatedSelf = data.allowedUsers.find(
+            (u: AllowedUserItem) => u.email === targetUser.email
+          );
+          if (updatedSelf) {
+            onUserUpdated({
+              ...user,
+              allowedProjects: updatedSelf.allowedProjects || ["ALL"],
+              defaultPermission: updatedSelf.defaultPermission || "reporter",
+              projectPermissions: updatedSelf.projectPermissions || {},
+            });
+          }
+        }
         setSaveMessage(
           `อัปเดตสิทธิ์โปรเจกต์ของ ${targetUser.email} เป็น [${nextProjs.join(", ")}] เรียบร้อยแล้ว`
+        );
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateExistingUserPermission = async (
+    targetUser: AllowedUserItem,
+    projectKeyOrDefault: string,
+    permission: ProjectPermissionLevel
+  ) => {
+    if (targetUser.email.includes("***")) return;
+    const nextDefault =
+      projectKeyOrDefault === "DEFAULT"
+        ? permission
+        : targetUser.defaultPermission || "reporter";
+    const nextProjectPerms = {
+      ...(targetUser.projectPermissions || {}),
+      ...(projectKeyOrDefault !== "DEFAULT"
+        ? { [projectKeyOrDefault]: permission }
+        : {}),
+    };
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_allowed_user",
+          email: targetUser.email,
+          name: targetUser.name,
+          role: targetUser.role,
+          allowedProjects: targetUser.allowedProjects || ["ALL"],
+          defaultPermission: nextDefault,
+          projectPermissions: nextProjectPerms,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.allowedUsers)) {
+        setAllowedUsers(data.allowedUsers);
+        if (user?.email === targetUser.email) {
+          onUserUpdated({
+            ...user,
+            defaultPermission: nextDefault,
+            projectPermissions: nextProjectPerms,
+          });
+        }
+        setSaveMessage(
+          `อัปเดตระดับสิทธิ์การใช้งานของ ${targetUser.email} (${
+            projectKeyOrDefault === "DEFAULT"
+              ? "สิทธิ์เริ่มต้น"
+              : `โปรเจกต์ ${projectKeyOrDefault}`
+          } -> ${PROJECT_PERMISSION_CONFIG[permission].shortLabel}) เรียบร้อยแล้ว`
         );
       }
     } finally {
@@ -244,6 +322,9 @@ export function GoogleLoginModal({
         setSaveMessage(`ลบโปรเจกต์ [${projKey}] เรียบร้อยแล้ว`);
         fetchAuthState();
         onDataReset?.();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorMessage(data.error || "ล้างข้อมูลไม่สำเร็จ");
       }
     } finally {
       setIsSaving(false);
@@ -281,38 +362,6 @@ export function GoogleLoginModal({
     }
   };
 
-  const handleGmailFormLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanEmail = loginEmailInput.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes("@")) {
-      setErrorMessage("กรุณากรอกอีเมล Gmail ที่ได้รับอนุญาตให้ถูกต้อง");
-      return;
-    }
-    setIsSaving(true);
-    setErrorMessage(null);
-    setSaveMessage(null);
-    try {
-      const res = await fetch("/api/auth/me", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: cleanEmail,
-          provider: "google",
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setLoginEmailInput("");
-        onUserUpdated(data.user);
-        fetchAuthState();
-      } else {
-        setErrorMessage(data.error || "เข้าสู่ระบบไม่สำเร็จ");
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleAddAllowedGmail = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = newGmail.trim().toLowerCase();
@@ -326,16 +375,30 @@ export function GoogleLoginModal({
     try {
       const effectiveProjects =
         newRole === "admin" ? ["ALL"] : selectedMemberProjects;
+      const effectiveDefaultPerm: ProjectPermissionLevel =
+        newRole === "admin" ? "project_admin" : newDefaultPermission;
+      const effectiveProjectPerms: Record<string, ProjectPermissionLevel> =
+        newRole === "admin"
+          ? {}
+          : selectedMemberProjects.includes("ALL")
+          ? newProjectPermissions
+          : Object.fromEntries(
+              selectedMemberProjects.map((pk) => [
+                pk,
+                newProjectPermissions[pk] || newDefaultPermission,
+              ])
+            );
       const res = await fetch("/api/auth/me", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "add_allowed_user",
-          adminEmail: user?.email,
           email: cleanEmail,
           name: newName.trim() || cleanEmail.split("@")[0],
           role: newRole,
           allowedProjects: effectiveProjects,
+          defaultPermission: effectiveDefaultPerm,
+          projectPermissions: effectiveProjectPerms,
         }),
       });
       const data = await res.json();
@@ -350,8 +413,12 @@ export function GoogleLoginModal({
       setNewName("");
       setNewRole("member");
       setSelectedMemberProjects(["ALL"]);
+      setNewDefaultPermission("reporter");
+      setNewProjectPermissions({});
       setSaveMessage(
-        `บันทึกสิทธิ์ให้ ${cleanEmail} (โปรเจกต์: ${effectiveProjects.join(", ")}) สำเร็จแล้ว`
+        `บันทึกสิทธิ์ให้ ${cleanEmail} (โปรเจกต์: ${effectiveProjects.join(", ")} · สิทธิ์: ${
+          PROJECT_PERMISSION_CONFIG[effectiveDefaultPerm].shortLabel
+        }) สำเร็จแล้ว`
       );
     } finally {
       setIsSaving(false);
@@ -368,7 +435,6 @@ export function GoogleLoginModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "remove_allowed_user",
-          adminEmail: user?.email,
           email: targetEmail,
         }),
       });
@@ -402,7 +468,6 @@ export function GoogleLoginModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "change_super_admin",
-          adminEmail: user?.email,
           newAdminEmail: cleanNewAdmin,
           newAdminName: newSuperAdminName.trim() || undefined,
         }),
@@ -424,46 +489,17 @@ export function GoogleLoginModal({
     }
   };
 
-  const handleQuickLogin = async (preset: {
-    name: string;
-    email: string;
-    role: string;
-  }) => {
-    if (preset.email.includes("***")) {
-      setErrorMessage(
-        "กรุณาพิมพ์อีเมล Gmail ของคุณเต็มๆ ในช่องเข้าสู่ระบบด้านบน (ระบบซ่อนอีเมลไว้เพื่อความเป็นส่วนตัว)"
-      );
-      return;
-    }
-    setIsSaving(true);
-    setErrorMessage(null);
-    try {
-      const res = await fetch("/api/auth/me", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...preset,
-          provider: "google",
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        onUserUpdated(data.user);
-        onClose();
-      } else {
-        setErrorMessage(data.error || "เข้าสู่ระบบไม่สำเร็จ");
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleResetAllIssues = async () => {
+    if (!window.confirm("ยืนยันล้างข้อมูล Issues ทั้งหมดและไฟล์แนบ? ย้อนกลับไม่ได้")) return;
     setIsSaving(true);
     setErrorMessage(null);
     setSaveMessage(null);
     try {
-      const res = await fetch("/api/seed", { method: "POST" });
+      const res = await fetch("/api/seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       if (res.ok) {
         setSaveMessage(
           "ล้างข้อมูล Issues ทั้งหมดและรีเซ็ตเลขเริ่มต้นเป็น #1 เรียบร้อยแล้ว"
@@ -607,39 +643,10 @@ export function GoogleLoginModal({
                     </button>
                   </div>
                 </div>
-              ) : (
-                /* Direct Gmail Login Form */
-                <form
-                  onSubmit={handleGmailFormLogin}
-                  className="rounded-xl border border-emerald-500/35 bg-slate-950/90 p-4 space-y-2.5"
-                >
-                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
-                    <Mail className="h-4 w-4" />
-                    <span>เข้าสู่ระบบด้วยอีเมล Gmail ที่ได้รับอนุญาตจาก Admin</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="email"
-                      required
-                      data-testid="login-gmail-input"
-                      value={loginEmailInput}
-                      onChange={(e) => setLoginEmailInput(e.target.value)}
-                      placeholder="กรอกอีเมล Gmail ของคุณที่มีสิทธิ์เข้าใช้งาน..."
-                      className="h-9 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 font-mono text-xs text-white focus:border-emerald-500 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      data-testid="login-gmail-submit-btn"
-                      disabled={isSaving || !loginEmailInput.trim()}
-                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50 cursor-pointer whitespace-nowrap"
-                    >
-                      <UserCheck className="h-3.5 w-3.5" />
-                      <span>เข้าสู่ระบบด้วย Gmail</span>
-                    </button>
-                  </div>
-                </form>
-              )}
+              ) : null}
 
+              {isAdminUser && (
+              <>
               {/* 1. Admin Gmail Access Control Panel + Multi-Project Selector */}
               <div className="rounded-xl border border-amber-500/30 bg-slate-950/90 p-4 space-y-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -751,55 +758,148 @@ export function GoogleLoginModal({
 
                     {newRole === "admin" ? (
                       <p className="text-[11px] text-amber-200/90">
-                        👑 ระดับสิทธิ์ <strong>Admin</strong> สามารถเข้าถึงได้ทุกโปรเจกต์โดยอัตโนมัติ
+                        👑 ระดับสิทธิ์ <strong>Admin</strong> สามารถเข้าถึงและจัดการได้ทุกโปรเจกต์โดยอัตโนมัติ
                       </p>
                     ) : (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        <button
-                          type="button"
-                          data-testid="toggle-member-project-ALL"
-                          onClick={() => toggleNewMemberProject("ALL")}
-                          className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold transition cursor-pointer ${
-                            selectedMemberProjects.includes("ALL")
-                              ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                              : "border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200"
-                          }`}
-                        >
-                          {selectedMemberProjects.includes("ALL") && (
-                            <Check className="h-3 w-3 text-emerald-400" />
-                          )}
-                          <span>🌐 ทุกโปรเจกต์ (ALL)</span>
-                        </button>
+                      <div className="space-y-2.5 pt-0.5">
+                        {/* Default Permission Selector for Member */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/90 px-3 py-2">
+                          <label className="text-[11px] font-semibold text-emerald-300">
+                            สิทธิ์การใช้งานเริ่มต้นในโปรเจกต์ที่ได้รับอนุญาต:
+                          </label>
+                          <select
+                            data-testid="admin-member-default-permission-select"
+                            value={newDefaultPermission}
+                            onChange={(e) =>
+                              setNewDefaultPermission(
+                                e.target.value as ProjectPermissionLevel
+                              )
+                            }
+                            className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2.5 text-xs font-semibold text-white focus:border-emerald-500 focus:outline-none"
+                          >
+                            <option value="question_only">
+                              💬 ถามคำถามได้อย่างเดียว (ห้ามแจ้งปัญหา/บั๊ก)
+                            </option>
+                            <option value="reporter">
+                              📝 แจ้งปัญหา & ตั้งคำถามได้ (ผู้ใช้ทั่วไป)
+                            </option>
+                            <option value="viewer">
+                              👁️ ดูข้อมูลและอ่านคำตอบอย่างเดียว
+                            </option>
+                            <option value="developer">
+                              🛠️ ทีมงานแก้ไข & ตอบคำถามพร้อมแนบไฟล์
+                            </option>
+                            <option value="project_admin">
+                              👑 ผู้ดูแลประจำโปรเจกต์ (จัดการได้ครบ)
+                            </option>
+                          </select>
+                        </div>
 
-                        {projects.map((p) => {
-                          const isChecked =
-                            !selectedMemberProjects.includes("ALL") &&
-                            selectedMemberProjects.includes(p.key);
-                          return (
-                            <button
-                              key={p.key}
-                              type="button"
-                              data-testid={`toggle-member-project-${p.key}`}
-                              onClick={() => toggleNewMemberProject(p.key)}
-                              className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-semibold transition cursor-pointer ${
-                                isChecked
-                                  ? "border-amber-400 bg-amber-500/20 text-amber-200"
-                                  : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
-                              }`}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            data-testid="toggle-member-project-ALL"
+                            onClick={() => toggleNewMemberProject("ALL")}
+                            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold transition cursor-pointer ${
+                              selectedMemberProjects.includes("ALL")
+                                ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                                : "border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200"
+                            }`}
+                          >
+                            {selectedMemberProjects.includes("ALL") && (
+                              <Check className="h-3 w-3 text-emerald-400" />
+                            )}
+                            <span>🌐 ทุกโปรเจกต์ (ALL)</span>
+                          </button>
+
+                          {projects.map((p) => {
+                            const isChecked =
+                              !selectedMemberProjects.includes("ALL") &&
+                              selectedMemberProjects.includes(p.key);
+                            return (
+                              <button
+                                key={p.key}
+                                type="button"
+                                data-testid={`toggle-member-project-${p.key}`}
+                                onClick={() => toggleNewMemberProject(p.key)}
+                                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-semibold transition cursor-pointer ${
+                                  isChecked
+                                    ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                                    : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600"
+                                }`}
+                              >
+                                {isChecked ? (
+                                  <Check className="h-3 w-3 text-amber-300" />
+                                ) : (
+                                  <span
+                                    className="h-2 w-2 rounded-full"
+                                    style={{ backgroundColor: p.color }}
+                                  />
+                                )}
+                                <span className="font-mono font-bold">[{p.key}]</span>
+                                <span className="truncate max-w-[140px]">{p.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Per-project permission overrides when specific projects are selected */}
+                        {!selectedMemberProjects.includes("ALL") &&
+                          selectedMemberProjects.length > 0 && (
+                            <div
+                              data-testid="admin-member-per-project-permissions"
+                              className="rounded-lg border border-amber-500/30 bg-amber-950/15 p-2.5 space-y-1.5"
                             >
-                              {isChecked ? (
-                                <Check className="h-3 w-3 text-amber-300" />
-                              ) : (
-                                <span
-                                  className="h-2 w-2 rounded-full"
-                                  style={{ backgroundColor: p.color }}
-                                />
-                              )}
-                              <span className="font-mono font-bold">[{p.key}]</span>
-                              <span className="truncate max-w-[140px]">{p.name}</span>
-                            </button>
-                          );
-                        })}
+                              <p className="text-[11px] font-semibold text-amber-200">
+                                กำหนดสิทธิ์แยกตามโปรเจกต์ที่เลือก (เช่น โปรเจกต์นี้ให้ถามได้อย่างเดียว):
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {selectedMemberProjects.map((pk) => {
+                                  const projObj = projects.find((x) => x.key === pk);
+                                  const currentPerm =
+                                    newProjectPermissions[pk] || newDefaultPermission;
+                                  return (
+                                    <div
+                                      key={pk}
+                                      className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950/90 px-2.5 py-1.5"
+                                    >
+                                      <span className="truncate font-mono text-[11px] font-bold text-amber-300">
+                                        [{pk}] {projObj?.name || pk}
+                                      </span>
+                                      <select
+                                        data-testid={`admin-member-project-perm-${pk}`}
+                                        value={currentPerm}
+                                        onChange={(e) =>
+                                          setNewProjectPermissions((prev) => ({
+                                            ...prev,
+                                            [pk]: e.target
+                                              .value as ProjectPermissionLevel,
+                                          }))
+                                        }
+                                        className="h-7 rounded border border-slate-700 bg-slate-900 px-2 text-[11px] text-white focus:border-emerald-500 focus:outline-none"
+                                      >
+                                        <option value="question_only">
+                                          ถามคำถามได้อย่างเดียว
+                                        </option>
+                                        <option value="reporter">
+                                          แจ้งปัญหา & ถามคำถามได้
+                                        </option>
+                                        <option value="viewer">
+                                          ดูอย่างเดียว
+                                        </option>
+                                        <option value="developer">
+                                          แก้ไข & ตอบคำถามได้
+                                        </option>
+                                        <option value="project_admin">
+                                          ดูแลโปรเจกต์ครบวงจร
+                                        </option>
+                                      </select>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>
@@ -851,26 +951,6 @@ export function GoogleLoginModal({
                             </div>
 
                             <div className="flex items-center gap-1.5">
-                              {!isMasked && (
-                                <button
-                                  type="button"
-                                  data-testid={`quick-login-${u.email.split("@")[0]}`}
-                                  disabled={isSaving}
-                                  onClick={() =>
-                                    handleQuickLogin({
-                                      name: u.name,
-                                      email: u.email,
-                                      role:
-                                        u.jobTitle ||
-                                        (isSuper ? "Super Admin" : "DevOps Engineer"),
-                                    })
-                                  }
-                                  className="inline-flex h-7 items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/15 px-2.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
-                                >
-                                  <UserCheck className="h-3 w-3" />
-                                  <span>{isCurrent ? "กำลังใช้งาน" : "สลับบัญชี"}</span>
-                                </button>
-                              )}
                               {!isSuper && isAdminUser && !isMasked && (
                                 <button
                                   type="button"
@@ -887,78 +967,175 @@ export function GoogleLoginModal({
                           </div>
 
                           {/* Project Permissions Row for this User */}
-                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                            <span className="text-[10px] text-slate-400">
-                              สิทธิ์โปรเจกต์:
-                            </span>
-                            {u.role === "admin" || isSuper ? (
-                              <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
-                                🌐 ทุกโปรเจกต์ (Admin)
+                          <div className="space-y-1.5 pt-0.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400">
+                                สิทธิ์โปรเจกต์:
                               </span>
-                            ) : (
-                              <>
-                                {userProjs.includes("ALL") ? (
-                                  <span
-                                    data-testid={`user-project-badge-${u.email}-ALL`}
-                                    className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300"
-                                  >
-                                    🌐 ทุกโปรเจกต์ (ALL)
-                                  </span>
-                                ) : (
-                                  userProjs.map((pk) => (
+                              {u.role === "admin" || isSuper ? (
+                                <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
+                                  🌐 ทุกโปรเจกต์ (ผู้ดูแลครบวงจร)
+                                </span>
+                              ) : (
+                                <>
+                                  {userProjs.includes("ALL") ? (
                                     <span
-                                      key={pk}
-                                      data-testid={`user-project-badge-${u.email}-${pk}`}
-                                      className="rounded border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
+                                      data-testid={`user-project-badge-${u.email}-ALL`}
+                                      className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300"
                                     >
-                                      📁 {pk}
+                                      🌐 ทุกโปรเจกต์ (ALL)
                                     </span>
-                                  ))
-                                )}
-
-                                {/* Interactive toggle buttons for Admin to adjust existing member's projects */}
-                                {!isMasked && projects.length > 0 && (
-                                  <div className="flex flex-wrap items-center gap-1 ml-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleToggleExistingUserProject(u, "ALL")
-                                      }
-                                      className={`rounded px-1.5 py-0.5 text-[10px] border cursor-pointer ${
-                                        userProjs.includes("ALL")
-                                          ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-200"
-                                          : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"
-                                      }`}
-                                      title="คลิกเพื่อให้สิทธิ์ทุกโปรเจกต์"
-                                    >
-                                      ALL
-                                    </button>
-                                    {projects.map((p) => {
-                                      const active =
-                                        !userProjs.includes("ALL") &&
-                                        userProjs.includes(p.key);
+                                  ) : (
+                                    userProjs.map((pk) => {
+                                      const pkPerm =
+                                        u.projectPermissions?.[pk] ||
+                                        u.defaultPermission ||
+                                        "reporter";
                                       return (
-                                        <button
-                                          key={p.key}
-                                          type="button"
-                                          data-testid={`row-toggle-proj-${u.email}-${p.key}`}
-                                          onClick={() =>
-                                            handleToggleExistingUserProject(u, p.key)
-                                          }
-                                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] border cursor-pointer ${
-                                            active
-                                              ? "border-amber-400/60 bg-amber-500/25 text-amber-200 font-bold"
-                                              : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"
-                                          }`}
-                                          title={`คลิกเพื่อเปิด/ปิดสิทธิ์โปรเจกต์ ${p.key}`}
+                                        <span
+                                          key={pk}
+                                          data-testid={`user-project-badge-${u.email}-${pk}`}
+                                          className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
                                         >
-                                          {active ? `✓ ${p.key}` : `+ ${p.key}`}
-                                        </button>
+                                          <span>📁 {pk}</span>
+                                          <span className="text-[9px] font-normal text-amber-200">
+                                            ({PROJECT_PERMISSION_CONFIG[pkPerm].shortLabel})
+                                          </span>
+                                        </span>
                                       );
-                                    })}
-                                  </div>
-                                )}
-                              </>
+                                    })
+                                  )}
+
+                                  {/* Interactive toggle buttons for Admin to adjust existing member's projects */}
+                                  {!isMasked && projects.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1 ml-1">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleToggleExistingUserProject(u, "ALL")
+                                        }
+                                        className={`rounded px-1.5 py-0.5 text-[10px] border cursor-pointer ${
+                                          userProjs.includes("ALL")
+                                            ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-200"
+                                            : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"
+                                        }`}
+                                        title="คลิกเพื่อให้สิทธิ์ทุกโปรเจกต์"
+                                      >
+                                        ALL
+                                      </button>
+                                      {projects.map((p) => {
+                                        const active =
+                                          !userProjs.includes("ALL") &&
+                                          userProjs.includes(p.key);
+                                        return (
+                                          <button
+                                            key={p.key}
+                                            type="button"
+                                            data-testid={`row-toggle-proj-${u.email}-${p.key}`}
+                                            onClick={() =>
+                                              handleToggleExistingUserProject(u, p.key)
+                                            }
+                                            className={`rounded px-1.5 py-0.5 font-mono text-[10px] border cursor-pointer ${
+                                              active
+                                                ? "border-amber-400/60 bg-amber-500/25 text-amber-200 font-bold"
+                                                : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"
+                                            }`}
+                                            title={`คลิกเพื่อเปิด/ปิดสิทธิ์โปรเจกต์ ${p.key}`}
+                                          >
+                                            {active ? `✓ ${p.key}` : `+ ${p.key}`}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            {/* Granular Permission Controls per user & per project */}
+                            {!isMasked && u.role !== "admin" && !isSuper && (
+                              <div className="flex flex-wrap items-center gap-2 rounded border border-slate-800/80 bg-slate-950/70 px-2.5 py-1.5 text-[11px]">
+                                <span className="text-slate-400">
+                                  ระดับสิทธิ์การใช้งาน:
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-slate-400">
+                                    เริ่มต้น:
+                                  </span>
+                                  <select
+                                    data-testid={`row-default-perm-${u.email}`}
+                                    value={u.defaultPermission || "reporter"}
+                                    onChange={(e) =>
+                                      handleUpdateExistingUserPermission(
+                                        u,
+                                        "DEFAULT",
+                                        e.target.value as ProjectPermissionLevel
+                                      )
+                                    }
+                                    className="h-6 rounded border border-slate-700 bg-slate-900 px-1.5 text-[10px] text-emerald-300 focus:border-emerald-500 focus:outline-none"
+                                  >
+                                    <option value="question_only">
+                                      ถามคำถามได้อย่างเดียว
+                                    </option>
+                                    <option value="reporter">
+                                      แจ้งปัญหา & ถามคำถามได้
+                                    </option>
+                                    <option value="viewer">ดูอย่างเดียว</option>
+                                    <option value="developer">
+                                      แก้ไข & ตอบคำถามได้
+                                    </option>
+                                    <option value="project_admin">
+                                      ดูแลโปรเจกต์ครบวงจร
+                                    </option>
+                                  </select>
+                                </div>
+
+                                {!userProjs.includes("ALL") &&
+                                  userProjs.map((pk) => {
+                                    const currentPkPerm =
+                                      u.projectPermissions?.[pk] ||
+                                      u.defaultPermission ||
+                                      "reporter";
+                                    return (
+                                      <div
+                                        key={pk}
+                                        className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5"
+                                      >
+                                        <span className="font-mono text-[10px] font-bold text-amber-300">
+                                          {pk}:
+                                        </span>
+                                        <select
+                                          data-testid={`row-proj-perm-${u.email}-${pk}`}
+                                          value={currentPkPerm}
+                                          onChange={(e) =>
+                                            handleUpdateExistingUserPermission(
+                                              u,
+                                              pk,
+                                              e.target.value as ProjectPermissionLevel
+                                            )
+                                          }
+                                          className="h-5 rounded bg-slate-950 px-1 text-[10px] text-white focus:outline-none"
+                                        >
+                                          <option value="question_only">
+                                            ถามคำถามได้อย่างเดียว
+                                          </option>
+                                          <option value="reporter">
+                                            แจ้งปัญหา & ถามคำถามได้
+                                          </option>
+                                          <option value="viewer">
+                                            ดูอย่างเดียว
+                                          </option>
+                                          <option value="developer">
+                                            แก้ไข & ตอบคำถามได้
+                                          </option>
+                                          <option value="project_admin">
+                                            ดูแลโปรเจกต์ครบวงจร
+                                          </option>
+                                        </select>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1088,7 +1265,11 @@ export function GoogleLoginModal({
                 )}
               </div>
 
+              </>
+              )}
+
               {/* Official Google OAuth Redirect Button */}
+              {!user && (
               <div className="rounded-xl border border-slate-800 bg-slate-950/90 p-4 text-center space-y-2.5">
                 <div className="flex items-center justify-center gap-2">
                   <GoogleIcon className="h-5 w-5" />
@@ -1125,6 +1306,7 @@ export function GoogleLoginModal({
                   </button>
                 </div>
               </div>
+              )}
             </div>
           ) : (
             /* Step-by-step Guide + Change Super Admin Email + Live OAuth Config Form */
@@ -1287,6 +1469,7 @@ export function GoogleLoginModal({
                 </ol>
               </div>
 
+              {isAdminUser ? (
               <form
                 onSubmit={handleSaveOAuthConfig}
                 className="rounded-xl border border-slate-800 bg-slate-950/90 p-4 space-y-3"
@@ -1365,6 +1548,11 @@ export function GoogleLoginModal({
                   </button>
                 </div>
               </form>
+              ) : (
+                <p className="rounded-xl border border-slate-800 bg-slate-950/90 p-4 text-[11px] text-slate-400">
+                  ตั้งค่า Google OAuth ได้เฉพาะ Admin (หรือตั้ง env GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET บนเซิร์ฟเวอร์)
+                </p>
+              )}
             </div>
           )}
         </div>

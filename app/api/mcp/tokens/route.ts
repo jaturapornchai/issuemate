@@ -3,35 +3,40 @@ import {
   listMcpTokens,
   generateMcpToken,
   revokeMcpToken,
-  getMcpAuthSettings,
-  setMcpAuthSettings,
 } from "@/lib/mcp-tokens";
 import {
+  assertCsrfSafe,
+  authRequiredResponse,
+  canUserAccessProject,
   getCurrentUser,
   listAllowedUsers,
   getSuperAdminEmail,
   maskEmail,
 } from "@/lib/auth";
-import { listProjects } from "@/lib/issue-service";
+import { listProjects, normalizeProjectKey } from "@/lib/issue-service";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return authRequiredResponse();
+    const isAuthenticatedAdmin = currentUser.isAdmin;
     const { searchParams } = new URL(req.url);
-    const ownerEmail = searchParams.get("ownerEmail") || undefined;
-    const [tokens, settings, currentUser, allowedUsers, projects, superAdminEmail] =
-      await Promise.all([
-        listMcpTokens(ownerEmail),
-        getMcpAuthSettings(),
-        getCurrentUser(),
-        listAllowedUsers(),
-        listProjects(),
-        getSuperAdminEmail(),
-      ]);
-
-    const isAuthenticatedAdmin =
-      Boolean(currentUser?.isAdmin) || currentUser?.email === superAdminEmail;
+    // Members only ever see their own tokens; Admin may filter by owner
+    const ownerEmail = isAuthenticatedAdmin
+      ? searchParams.get("ownerEmail") || undefined
+      : currentUser.email;
+    const [tokens, allUsers, allProjects, superAdminEmail] = await Promise.all([
+      listMcpTokens(ownerEmail),
+      listAllowedUsers(),
+      listProjects(),
+      getSuperAdminEmail(),
+    ]);
+    const allowedUsers = isAuthenticatedAdmin
+      ? allUsers
+      : allUsers.filter((u) => u.email === currentUser.email);
+    const projects = allProjects.filter((p) => canUserAccessProject(currentUser, p.key));
 
     // Mask emails in token list and allowedUsers when viewer is not logged in
     const safeTokens = tokens.map((t) => ({
@@ -60,7 +65,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       tokens: safeTokens,
-      settings,
       currentUser,
       allowedUsers: safeAllowedUsers,
       projects,
@@ -75,18 +79,37 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
+
   try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return authRequiredResponse();
     const body = await req.json();
 
     if (body.action === "update_settings") {
-      const settings = await setMcpAuthSettings(Boolean(body.enforceTokenAuth));
-      return NextResponse.json({ settings });
+      return NextResponse.json(
+        { error: "MCP Server บังคับใช้ Token เสมอ ไม่สามารถปิดได้" },
+        { status: 400 }
+      );
     }
 
-    const currentUser = await getCurrentUser();
-    const ownerEmail = String(body.ownerEmail || currentUser?.email || "")
+    // Members can only mint tokens for themselves; Admin may issue for any allowed email
+    const ownerEmail = String(
+      (currentUser.isAdmin && body.ownerEmail) || currentUser.email
+    )
       .trim()
       .toLowerCase();
+    if (
+      !currentUser.isAdmin &&
+      body.ownerEmail &&
+      String(body.ownerEmail).trim().toLowerCase() !== currentUser.email
+    ) {
+      return NextResponse.json(
+        { error: "สร้าง MCP Token ได้เฉพาะอีเมลของตัวเองเท่านั้น" },
+        { status: 403 }
+      );
+    }
 
     if (!ownerEmail || !ownerEmail.includes("@") || ownerEmail.includes("*")) {
       return NextResponse.json(
@@ -98,10 +121,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const projectKey = String(body.projectKey || "")
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
+    const projectKey = normalizeProjectKey(String(body.projectKey || ""));
 
     if (!projectKey) {
       return NextResponse.json(
@@ -114,15 +134,19 @@ export async function POST(req: Request) {
     }
 
     const ownerName = String(
-      body.ownerName || currentUser?.name || ownerEmail.split("@")[0]
+      body.ownerName || currentUser.name || ownerEmail.split("@")[0]
     ).trim();
 
     const name = String(body.name || "").trim() || "Antigravity";
 
     const validRoles = ["claude_reviewer", "antigravity_fixer", "admin"] as const;
-    const agentRole = validRoles.includes(body.agentRole)
+    const requestedRole = validRoles.includes(body.agentRole)
       ? body.agentRole
       : "antigravity_fixer";
+    const agentRole =
+      requestedRole === "admin" && !currentUser.isAdmin
+        ? "antigravity_fixer"
+        : requestedRole;
 
     const created = await generateMcpToken({
       name,
@@ -146,13 +170,21 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
+
   try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return authRequiredResponse();
     const { searchParams } = new URL(req.url);
     const id = (searchParams.get("id") || "").trim();
     if (!id) {
       return NextResponse.json({ error: "กรุณาระบุรหัส Token (id)" }, { status: 400 });
     }
-    const revoked = await revokeMcpToken(id);
+    const revoked = await revokeMcpToken(id, currentUser.isAdmin ? undefined : currentUser.email);
+    if (!revoked) {
+      return NextResponse.json({ error: "ไม่พบ Token นี้ หรือไม่ใช่ Token ของคุณ" }, { status: 404 });
+    }
     return NextResponse.json({ revoked, id });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ยกเลิก MCP Token ไม่สำเร็จ";

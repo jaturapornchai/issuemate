@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { listIssues, createIssue } from "@/lib/issue-service";
-import { uploadBufferToMinio } from "@/lib/minio";
+import { listIssues, createIssue, normalizeProjectKey } from "@/lib/issue-service";
+import {
+  MAX_FILES_PER_REQUEST,
+  sanitizeClientAttachments,
+  uploadBufferToMinio,
+} from "@/lib/minio";
+import {
+  assertCsrfSafe,
+  authRequiredResponse,
+  getCurrentUser,
+  projectScopeFor,
+  validateUserProjectAction,
+} from "@/lib/auth";
 import type {
   AttachmentItem,
   IssuePriority,
@@ -14,8 +25,25 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return authRequiredResponse();
     const { searchParams } = new URL(req.url);
-    const projectKey = searchParams.get("projectKey") || undefined;
+    const rawProjectKey = searchParams.get("projectKey") || undefined;
+    if (rawProjectKey && rawProjectKey.toUpperCase() !== "ALL") {
+      const normalized = normalizeProjectKey(rawProjectKey);
+      const check = validateUserProjectAction(user, normalized, "view");
+      if (!check.allowed) {
+        return NextResponse.json({ error: check.reason }, { status: 403 });
+      }
+    }
+    const scope = projectScopeFor(user, rawProjectKey ? normalizeProjectKey(rawProjectKey) : undefined);
+    if (scope === null) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์เข้าถึงโปรเจกต์นี้" }, { status: 403 });
+    }
+    if (Array.isArray(scope) && scope.length === 0) {
+      return NextResponse.json({ issues: [] });
+    }
+
     const status = (searchParams.get("status") as IssueStatusFilter) || undefined;
     const type = (searchParams.get("type") as IssueType | "all") || undefined;
     const priority = (searchParams.get("priority") as IssuePriority | "all") || undefined;
@@ -26,7 +54,7 @@ export async function GET(req: Request) {
     const sortDir = (searchParams.get("sortDir") as "asc" | "desc") || undefined;
 
     const issues = await listIssues({
-      projectKey,
+      projectKey: scope,
       status,
       type,
       priority,
@@ -44,15 +72,54 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const reporter = body.reporter ? String(body.reporter) : "DevOps Engineer";
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
 
-    const attachments: AttachmentItem[] = Array.isArray(body.attachments)
-      ? [...body.attachments]
-      : [];
+  try {
+    // Identity comes from the signed session only (actorEmail/reporterEmail/reporter in the body are ignored)
+    const effectiveUser = await getCurrentUser();
+    if (!effectiveUser) return authRequiredResponse();
+    const body = await req.json();
+    // Same normalization createIssue applies, so the key we authorize is the key we store
+    const projectKey = normalizeProjectKey(String(body.projectKey || ""));
+    if (!projectKey) {
+      return NextResponse.json({ error: "กรุณาระบุโปรเจกต์ (projectKey)" }, { status: 400 });
+    }
+    const issueType: IssueType = body.type || "bug";
+
+    const check = validateUserProjectAction(
+      effectiveUser,
+      projectKey,
+      "create_issue",
+      issueType
+    );
+    if (!check.allowed) {
+      return NextResponse.json(
+        { error: check.reason, permission: check.permission },
+        { status: 403 }
+      );
+    }
+    // Pipeline fields at creation time are a status change: developer/project_admin only
+    const canManage = validateUserProjectAction(
+      effectiveUser,
+      projectKey,
+      "change_status"
+    ).allowed;
+
+    const reporter = effectiveUser.name || effectiveUser.email || "ผู้แจ้งเรื่อง";
+
+    const attachments: AttachmentItem[] = sanitizeClientAttachments(
+      body.attachments,
+      reporter
+    );
 
     if (Array.isArray(body.files)) {
+      if (body.files.length > MAX_FILES_PER_REQUEST) {
+        return NextResponse.json(
+          { error: `แนบไฟล์ได้ไม่เกิน ${MAX_FILES_PER_REQUEST} ไฟล์ต่อครั้ง` },
+          { status: 400 }
+        );
+      }
       for (const f of body.files) {
         if (!f || !f.filename) continue;
         const buf = f.base64
@@ -65,6 +132,7 @@ export async function POST(req: Request) {
             f.mimeType || (f.contentText ? "text/plain; charset=utf-8" : "application/octet-stream")
           ),
           uploadedBy: reporter,
+          uploaderEmail: effectiveUser.email,
         });
         attachments.push(uploaded);
       }
@@ -88,24 +156,25 @@ export async function POST(req: Request) {
       : [];
 
     const issue = await createIssue({
-      projectKey: String(body.projectKey || ""),
+      projectKey,
       title: String(body.title || ""),
       description: body.description ? String(body.description) : "",
-      status: body.status,
+      status: canManage ? body.status : undefined,
       type: body.type,
       priority: body.priority,
       reporter,
+      reporterEmail: effectiveUser.email,
       department: body.department ? String(body.department) : "DevOps & SRE Team",
-      assignee: body.assignee ? String(body.assignee) : undefined,
+      assignee: canManage && body.assignee ? String(body.assignee) : undefined,
       labels: Array.isArray(body.labels) ? body.labels.map(String) : [],
       milestone: body.milestone ? String(body.milestone) : undefined,
       dueDate: body.dueDate ? String(body.dueDate) : undefined,
       attachments,
       subtasks,
       relatedCodes: Array.isArray(body.relatedCodes) ? body.relatedCodes.map(String) : [],
-      devopsMeta: body.devopsMeta || undefined,
-      reviewMeta: body.reviewMeta || undefined,
-      aiSummary: body.aiSummary ? String(body.aiSummary) : undefined,
+      devopsMeta: canManage ? body.devopsMeta || undefined : undefined,
+      reviewMeta: canManage ? body.reviewMeta || undefined : undefined,
+      aiSummary: canManage && body.aiSummary ? String(body.aiSummary) : undefined,
     });
     return NextResponse.json({ issue }, { status: 201 });
   } catch (err: unknown) {

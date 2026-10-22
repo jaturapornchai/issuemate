@@ -346,18 +346,19 @@ export function MonitorDashboardView({
             <div className="flex items-center gap-2">
               <Siren className="h-4 w-4 text-rose-400" />
               <h3 className="text-sm font-bold text-white">
-                สัดส่วนประเภทงาน DevOps &amp; Engineering
+                สัดส่วนหมวดหมู่คำถาม &amp; ปัญหาที่แจ้งเข้ามา
               </h3>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  "incident",
+                  "question",
                   "bug",
-                  "deployment",
-                  "performance",
-                  "security",
+                  "incident",
                   "feature",
+                  "performance",
+                  "deployment",
+                  "security",
                 ] as IssueType[]
               ).map((typeKey) => {
                 const cfg = TYPE_CONFIG[typeKey];

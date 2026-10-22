@@ -1,12 +1,25 @@
 import { NextResponse } from "next/server";
-import { listProjects, createProject } from "@/lib/issue-service";
-import { getCollections, attachmentKeysOf, removeUnreferencedAttachments } from "@/lib/mongodb";
+import {
+  listProjects,
+  createProject,
+  deleteProjectByKey,
+  normalizeProjectKey,
+} from "@/lib/issue-service";
+import {
+  adminRequiredResponse,
+  assertCsrfSafe,
+  authRequiredResponse,
+  canUserAccessProject,
+  getCurrentUser,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const projects = await listProjects();
+    const user = await getCurrentUser();
+    if (!user) return authRequiredResponse();
+    const projects = (await listProjects()).filter((p) => canUserAccessProject(user, p.key));
     return NextResponse.json({ projects });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ไม่สามารถดึงรายการโปรเจกต์ได้";
@@ -15,7 +28,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
+
   try {
+    const user = await getCurrentUser();
+    if (!user) return authRequiredResponse();
+    if (!user.isAdmin) return adminRequiredResponse();
     const body = await req.json();
     const created = await createProject({
       key: String(body.key || ""),
@@ -33,19 +52,19 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
+
   try {
+    const user = await getCurrentUser();
+    if (!user) return authRequiredResponse();
+    if (!user.isAdmin) return adminRequiredResponse();
     const { searchParams } = new URL(req.url);
-    const key = (searchParams.get("key") || "").trim().toUpperCase();
+    const key = normalizeProjectKey(searchParams.get("key") || "");
     if (!key) {
       return NextResponse.json({ error: "กรุณาระบุรหัสโปรเจกต์" }, { status: 400 });
     }
-    const { projects, issues } = await getCollections();
-    const droppedKeys = await attachmentKeysOf(issues, { projectKey: key });
-    await Promise.all([
-      projects.deleteOne({ key }),
-      issues.deleteMany({ projectKey: key }),
-    ]);
-    await removeUnreferencedAttachments(issues, droppedKeys);
+    await deleteProjectByKey(key);
     return NextResponse.json({ deleted: key });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "ไม่สามารถลบโปรเจกต์ได้";

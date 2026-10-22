@@ -26,10 +26,12 @@ export function KanbanBoardView({
   issues,
   onSelectIssue,
   onQuickStatusChange,
+  canChangeStatus = true,
 }: {
   issues: IssueRecord[];
   onSelectIssue: (issue: IssueRecord) => void;
   onQuickStatusChange: (code: string, nextStatus: IssueStatus) => void;
+  canChangeStatus?: boolean;
 }) {
   return (
     <div
@@ -122,7 +124,7 @@ export function KanbanBoardView({
                           </span>
                         </div>
 
-                        {col.nextStatus && (
+                        {col.nextStatus && canChangeStatus && (
                           <button
                             type="button"
                             onClick={(e) => {

@@ -34,6 +34,7 @@ export async function GET(req: Request) {
     path: "/",
     maxAge: 600,
     sameSite: "lax",
+    secure: origin.startsWith("https://"),
   });
   return res;
 }

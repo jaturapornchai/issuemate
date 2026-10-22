@@ -31,18 +31,18 @@ import {
 const COLUMNS: Array<
   ResizableColumnDef & { label: string; sortField: string; align?: "left" | "center" }
 > = [
-  { key: "code", label: "รหัส", sortField: "code", defaultWidth: 11 },
-  { key: "status", label: "สถานะ Pipeline", sortField: "status", defaultWidth: 12 },
+  { key: "code", label: "รหัสเรื่อง", sortField: "code", defaultWidth: 11 },
+  { key: "status", label: "สถานะการดำเนินการ", sortField: "status", defaultWidth: 12 },
   {
     key: "title",
-    label: "หัวข้อปัญหา / รายละเอียด / คำสั่งแก้ไข (Antigravity)",
+    label: "หัวข้อปัญหา / คำถามที่สอบถาม / ความคืบหน้าการแก้ไข",
     sortField: "title",
     defaultWidth: 36,
   },
-  { key: "type", label: "ประเภท", sortField: "type", defaultWidth: 11 },
-  { key: "priority", label: "ความสำคัญ", sortField: "priority", defaultWidth: 10 },
-  { key: "assignee", label: "ผู้รับผิดชอบ (AI/DevOps)", sortField: "assignee", defaultWidth: 11 },
-  { key: "meta", label: "ไฟล์ / โหวต", sortField: "upvotes", defaultWidth: 9, align: "center" },
+  { key: "type", label: "หมวดหมู่", sortField: "type", defaultWidth: 11 },
+  { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 10 },
+  { key: "assignee", label: "ผู้ดูแล / ผู้ตอบ", sortField: "assignee", defaultWidth: 11 },
+  { key: "meta", label: "ไฟล์แนบ / โหวต", sortField: "upvotes", defaultWidth: 9, align: "center" },
 ];
 
 const SEVERITY_CLASS: Record<string, string> = {

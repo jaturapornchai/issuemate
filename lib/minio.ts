@@ -54,15 +54,21 @@ export async function ensureBucket(): Promise<string> {
   return MINIO_BUCKET;
 }
 
-const IMAGE_MIME_PREFIXES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/svg+xml"];
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB per file
+export const MAX_FILES_PER_REQUEST = 10;
+export const VALID_MINIO_KEY_REGEX = /^\d{8}\/[0-9a-f-]{36}-[^/]+$/i;
+
+// Exclude image/svg+xml so SVG is treated as a downloadable document and never rendered inline
+const IMAGE_MIME_PREFIXES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"];
 
 export function classifyAttachmentKind(mimeType: string, filename: string): "image" | "document" {
   const lowerMime = (mimeType || "").toLowerCase();
+  if (lowerMime.includes("svg")) return "document";
   if (IMAGE_MIME_PREFIXES.some((p) => lowerMime.startsWith(p))) {
     return "image";
   }
   const ext = filename.split(".").pop()?.toLowerCase() || "";
-  if (["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp"].includes(ext)) {
+  if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) {
     return "image";
   }
   return "document";
@@ -72,12 +78,56 @@ export function sanitizeFilename(filename: string): string {
   return filename.replace(/[^a-zA-Z0-9ก-๙._-]/g, "_").slice(0, 120) || "file";
 }
 
+export function sanitizeClientAttachments(
+  rawList: unknown,
+  fallbackUploadedBy: string
+): AttachmentItem[] {
+  if (!Array.isArray(rawList)) return [];
+  const sanitized: AttachmentItem[] = [];
+  for (const raw of rawList.slice(0, MAX_FILES_PER_REQUEST * 2)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const key = String(item.key || "").trim();
+    if (!VALID_MINIO_KEY_REGEX.test(key)) {
+      throw new Error(`รหัสไฟล์แนบ (MinIO Key) ไม่ถูกต้องหรือไม่ได้อัปโหลดผ่านระบบ: ${key || "empty"}`);
+    }
+    const name = String(item.name || key.split("/").pop() || "file").slice(0, 200);
+    const mimeType = String(item.mimeType || "application/octet-stream").slice(0, 120);
+    const size = Math.max(0, Number(item.size) || 0);
+    const uploadedAt =
+      typeof item.uploadedAt === "string" && item.uploadedAt
+        ? item.uploadedAt
+        : new Date().toISOString();
+    const uploadedBy =
+      typeof item.uploadedBy === "string" && item.uploadedBy.trim()
+        ? item.uploadedBy.trim().slice(0, 120)
+        : fallbackUploadedBy;
+    sanitized.push({
+      id: typeof item.id === "string" && item.id ? item.id : crypto.randomUUID(),
+      key,
+      name,
+      mimeType,
+      size,
+      kind: classifyAttachmentKind(mimeType, name),
+      uploadedAt,
+      uploadedBy,
+      // Always derive URL on the server from key — never trust client-supplied url (prevents javascript: XSS)
+      url: `/api/files/${encodeURIComponent(key)}`,
+    });
+  }
+  return sanitized;
+}
+
 export async function uploadBufferToMinio(params: {
   buffer: Buffer;
   filename: string;
   mimeType: string;
   uploadedBy?: string;
+  uploaderEmail?: string;
 }): Promise<AttachmentItem> {
+  if (params.buffer.byteLength > MAX_FILE_SIZE) {
+    throw new Error(`ไฟล์ ${params.filename} มีขนาดเกิน 50MB`);
+  }
   const s3 = getS3Client();
   const bucket = await ensureBucket();
 
@@ -95,6 +145,8 @@ export async function uploadBufferToMinio(params: {
       ContentType: contentType,
       Metadata: {
         originalname: encodeURIComponent(params.filename),
+        uploadedby: encodeURIComponent(params.uploadedBy || ""),
+        uploaderemail: encodeURIComponent((params.uploaderEmail || "").trim().toLowerCase()),
       },
     })
   );
@@ -136,6 +188,7 @@ export async function getObjectFromMinio(key: string): Promise<{
   body: ReadableStream | Uint8Array | null;
   contentType: string;
   contentLength?: number;
+  metadata?: Record<string, string>;
 }> {
   const s3 = getS3Client();
   const bucket = await ensureBucket();
@@ -151,5 +204,6 @@ export async function getObjectFromMinio(key: string): Promise<{
     body: byteArray,
     contentType: res.ContentType || "application/octet-stream",
     contentLength: res.ContentLength,
+    metadata: res.Metadata,
   };
 }

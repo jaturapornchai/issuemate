@@ -1,22 +1,63 @@
 import { NextResponse } from "next/server";
-import { uploadBufferToMinio } from "@/lib/minio";
+import {
+  MAX_FILE_SIZE,
+  MAX_FILES_PER_REQUEST,
+  uploadBufferToMinio,
+} from "@/lib/minio";
 import type { AttachmentItem } from "@/lib/types";
+import {
+  assertCsrfSafe,
+  authRequiredResponse,
+  getCurrentUser,
+  type AuthUser,
+} from "@/lib/auth";
+import { formatTokenActorIdentity, verifyMcpRequestToken } from "@/lib/mcp-tokens";
 
 export const runtime = "nodejs";
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB per file
+function canUserUploadAnyFile(user: AuthUser): boolean {
+  if (user.isAdmin) return true;
+  const projects = user.allowedProjects || [];
+  if (projects.length === 0) return false;
+  const perms = Object.values(user.projectPermissions || {});
+  const hasWritableProject = perms.some((p) => p !== "viewer");
+  if (perms.length > 0) return hasWritableProject;
+  return (user.defaultPermission || "reporter") !== "viewer";
+}
 
 export async function POST(req: Request) {
+  const csrfErr = assertCsrfSafe(req, { allowMultipart: true });
+  if (csrfErr) return csrfErr;
+
   try {
+    // Browser session, or an MCP token for AI / API clients
+    const user = await getCurrentUser();
+    const tokenCheck = user ? null : await verifyMcpRequestToken(req);
+    if (!user && !tokenCheck?.allowed) return authRequiredResponse();
+    const effectiveUser = user || tokenCheck?.ownerUser;
+    if (effectiveUser && !canUserUploadAnyFile(effectiveUser)) {
+      return NextResponse.json(
+        { error: "บัญชีของคุณมีสิทธิ์ดูอย่างเดียว ไม่สามารถอัปโหลดไฟล์ได้" },
+        { status: 403 }
+      );
+    }
+    const uploadedBy = user ? user.name : formatTokenActorIdentity(tokenCheck?.tokenRecord);
+    const uploaderEmail = effectiveUser?.email || "";
+
     const contentType = req.headers.get("content-type") || "";
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
-      const uploadedBy = String(formData.get("uploadedBy") || "สมาชิกในทีม");
       const files = formData.getAll("files");
 
       if (!files || files.length === 0) {
         return NextResponse.json({ error: "กรุณาเลือกไฟล์ที่ต้องการอัปโหลด" }, { status: 400 });
+      }
+      if (files.length > MAX_FILES_PER_REQUEST) {
+        return NextResponse.json(
+          { error: `อัปโหลดได้ไม่เกิน ${MAX_FILES_PER_REQUEST} ไฟล์ต่อครั้ง` },
+          { status: 400 }
+        );
       }
 
       const uploaded: AttachmentItem[] = [];
@@ -35,6 +76,7 @@ export async function POST(req: Request) {
           filename: item.name,
           mimeType: item.type || "application/octet-stream",
           uploadedBy,
+          uploaderEmail,
         });
         uploaded.push(result);
       }
@@ -45,6 +87,12 @@ export async function POST(req: Request) {
     // Fallback: JSON base64 upload for AI / API clients
     const body = await req.json();
     const items = Array.isArray(body.files) ? body.files : [body];
+    if (items.length > MAX_FILES_PER_REQUEST) {
+      return NextResponse.json(
+        { error: `อัปโหลดได้ไม่เกิน ${MAX_FILES_PER_REQUEST} ไฟล์ต่อครั้ง` },
+        { status: 400 }
+      );
+    }
     const uploaded: AttachmentItem[] = [];
 
     for (const item of items) {
@@ -61,7 +109,8 @@ export async function POST(req: Request) {
         buffer,
         filename: String(item.filename),
         mimeType: String(item.mimeType || "application/octet-stream"),
-        uploadedBy: String(item.uploadedBy || "AI / API Client"),
+        uploadedBy,
+        uploaderEmail,
       });
       uploaded.push(result);
     }

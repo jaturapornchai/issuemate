@@ -1,149 +1,166 @@
-# IssueMate DevOps — ระบบแจ้งปัญหา & ติดตามงานสำหรับ Antigravity
+# IssueMate DevOps — ระบบแจ้งปัญหา & ติดตามงานสำหรับ Antigravity, Claude Code และ Codex
 
 > **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com)
 
-ระบบบริหารจัดการปัญหา (Issue Tracker) และติดตามงานแบบครบวงจรบน **`https://issue.dedezoom.com`** ที่ออกแบบให้ผู้ใช้งานทั่วไปใช้งานง่ายที่สุด เน้นการ **แนบรูปภาพหลายรูปและแนบไฟล์เอกสารหลายไฟล์พร้อมกัน** (รวมถึงกด `Ctrl+V` วางภาพแคปหน้าจอได้ทันที) เก็บไฟล์ลง **MinIO S3 Object Storage** และฐานข้อมูล **MongoDB** พร้อมระบบ **Login by Google (Gmail Whitelist ควบคุมโดย Admin พร้อมซ่อนอีเมลเพื่อความเป็นส่วนตัว)** และ **MCP Server v3.0 ที่บังคับระบุโปรเจกต์ (`projectKey`) กันพลาด** สำหรับให้ **Antigravity** ดึงรายการปัญหาไปวิเคราะห์สาเหตุ แก้ไขโค้ด และ Deploy อัตโนมัติ
+ระบบบริหารจัดการปัญหา (Issue Tracker) และเชื่อมโยงระหว่าง **ผู้ใช้งานทั่วไป / Tester (Non-Tech)** กับ **ทีมนักพัฒนา & AI Agent (Antigravity, Claude Code, Codex)** บน **`https://issue.dedezoom.com`** ภายใต้แนวคิด **"Easy for Tester, Rich for Dev"** — ให้ผู้แจ้งปัญหาพิมพ์หรือพูดเหมือนคุยแชท วางภาพแคปหน้าจอด้วย `Ctrl+V` พร้อมวาดวงกลม/ลูกศร/เบลอข้อมูลสำคัญได้ทันที ขณะที่ระบบแอบเก็บข้อมูลอุปกรณ์และจัดโครงสร้างเป็น Issue ระดับมืออาชีพให้นักพัฒนาครบ 100%
 
 ---
 
-## ✨ จุดเด่นหลักของระบบ (Core Features)
+## 🚀 ชุดฟีเจอร์ใหม่ "Easy for Tester, Rich for Dev" (5 ฟีเจอร์หลัก)
 
-1. **การเข้าสู่ระบบและจัดการสิทธิ์ด้วย Gmail (กำหนดสิทธิ์สมาชิกเลือกได้หลาย Project + ซ่อนอีเมลส่วนตัว)**:
-   - ผู้ดูแลระบบสูงสุด (**Super Admin**) เป็นผู้กำหนดรายชื่ออีเมล Gmail (`allowed_users`) ที่ได้รับอนุญาตให้เข้าใช้งานระบบและสร้าง MCP API Token
-   - **Gmail สมาชิกเลือกสิทธิ์ได้หลายโปรเจกต์ (`allowedProjects`)**: Admin สามารถกำหนดได้ว่าสมาชิกแต่ละคนเข้าถึงได้ **ทุกโปรเจกต์ (`ALL`)** หรือเลือกติ๊กเฉพาะบางโปรเจกต์ได้หลายโปรเจกต์พร้อมกัน (เช่น `["SMLAIACC", "POS"]`) และสามารถคลิกสลับเพิ่ม/ลดโปรเจกต์ของสมาชิกแต่ละคนได้ทันทีในตาราง Admin
-   - **เพิ่มโปรเจกต์ใหม่ได้ทั้ง 2 ช่องทาง**:
-     1. เพิ่มผ่าน **หน้าจอ Admin** (`Login by Google` -> ส่วน **"จัดการและเพิ่มโปรเจกต์ใหม่"**) หรือปุ่ม `+ เพิ่มโปรเจกต์` บนหน้าเว็บ
-     2. เพิ่มผ่าน **MCP (`create_project`)** โดยระบบบังคับให้ Antigravity **ต้องถามรหัสย่อ (`key`), ชื่อโปรเจกต์ (`name`), และคำอธิบาย (`description`) เพื่อยืนยันกับผู้ใช้งานให้เรียบร้อยก่อน (`confirmedByUser: true`)** จึงจะสร้างโปรเจกต์ให้จริง
-   - เมื่อเปิดหน้าเว็บโดยยังไม่ได้ล็อกอินเป็น Admin ระบบจะ **ซ่อนอีเมลอัตโนมัติ** (เช่น `a***n@gmail.com`) เพื่อไม่ให้เปิดเผยอีเมลส่วนตัวสู่สาธารณะ
+### 1. 🎙️ "Speak or Type Like Chat" Input + Voice-to-Issue
+- ช่องแชทเป็นมิตรสำหรับผู้ใช้งานทั่วไป: *"เจอปัญหาอะไร หรืออยากให้ทำอะไร พิมพ์หรือพูดบอกได้เลย..."* พร้อมปุ่มสลับโหมด **`💬 โหมดง่าย (Simple)`** และ **`🛠️ โหมดละเอียด (Technical)`**
+- ปุ่มไมโครโฟน **`พูดบอกปัญหา`** ใช้ `Web Speech API` (`SpeechRecognition` / `webkitSpeechRecognition`) รองรับทั้งภาษาไทย (`th-TH`) และภาษาอังกฤษ (`en-US`)
+- ระบบ AI (`POST /api/ai/format-issue`) แปลงข้อความพูดคุยทั่วไปให้เป็นโครงสร้าง GitHub/DevOps Issue อัตโนมัติ:
+  - **Clear Title** (`[Bug]` / `[Feat]` / `[Question]` สรุปชัดเจน)
+  - **Steps to Reproduce** (ลำดับขั้นตอน 1, 2, 3...)
+  - **Expected vs. Actual Behavior** (สิ่งที่ควรจะเป็น เทียบกับ อาการที่เกิดขึ้นจริง)
+  - **Severity Badge** (`🔴 Urgent`, `🟡 Medium`, `🟢 Minor`)
 
-2. **หน้าจอแจ้งปัญหาที่เรียบง่ายสำหรับผู้ใช้ทั่วไป (Simple Issue Form + Multi-File Upload)**:
-   - กรอกเพียง **โปรเจกต์**, **ประเภทเรื่อง**, **ความเร่งด่วน**, **หัวข้อปัญหา** และ **รายละเอียด**
-   - **แนบรูปภาพและไฟล์ได้หลายรายการพร้อมกัน**:
-     - ลากวางไฟล์ (Drag & Drop) หรือเลือกหลายไฟล์พร้อมกัน (Multi-Select)
-     - กด **`Ctrl+V`** เพื่อวางรูปภาพจาก Clipboard (Screenshot) ต่อเนื่องได้หลายรูป
-     - แสดง Thumbnail พรีวิวรูปภาพขนาดใหญ่ พร้อม **Full-screen Image Lightbox** สำหรับซูมดูภาพชัดเจนทั้งในรายละเอียด Issue และในช่องคอมเมนต์
+### 2. 🎨 Instant Clipboard Paste (`Ctrl+V`) & Simple HTML5 Canvas Image Annotator
+- กด **`Ctrl+V`** ที่ไหนก็ได้ในหน้าฟอร์มเพื่อวางภาพแคปหน้าจอจาก Clipboard หรือลากวางรูปภาพ/ไฟล์เอกสารหลายไฟล์พร้อมกันเข้า MinIO S3
+- ปุ่ม **`✏️ วาดจุดเสีย / ลูกศร / เบลอ`** บนรูปภาพแนบ เปิดเครื่องมือวาดบน `<canvas>` ที่ใช้งานง่ายที่สุด 3 ปุ่ม:
+  1. **⭕ วงกลมสีแดง (Red Circle)** — วงล้อมจุดที่ปุ่มพังหรือแสดงผลผิด
+  2. **➡️ ลูกศรชี้ (Arrow)** — ชี้จุดที่ต้องการให้แก้ไข
+  3. **🔒 เบลอข้อมูลลับ (Blur Tool)** — ลากคลุมเพื่อเบลอชื่อลูกค้า เบอร์โทร หรือยอดเงินสำคัญก่อนส่ง
 
-3. **MCP บังคับระบุโปรเจกต์ (`projectKey`) กันพลาดข้ามโปรเจกต์ 100%**:
-   - ทุก **MCP API Token (`ism_live_<40-hex>`)** จะถูกผูกเข้ากับ **รหัสโปรเจกต์ (`projectKey`)** และ **อีเมล Gmail ผู้ใช้งาน**
-   - หาก Antigravity เผลอส่งคำสั่งอ่าน แก้ไข หรือสร้าง Issue ข้ามไปโปรเจกต์อื่นที่ไม่ตรงกับ Token หรือ Header `X-MCP-Project` ระบบจะ **บล็อกทันทีพร้อมแจ้งเตือนภาษาไทยชัดเจน**
+### 3. 📱 Zero-Effort Environment Auto-Capture (เก็บข้อมูลเครื่องอัตโนมัติ)
+- เก็บข้อมูลสภาพแวดล้อมของผู้แจ้งในเบื้องหลังอัตโนมัติโดยที่ผู้ใช้ไม่ต้องกรอกเอง (`navigator.userAgent`, `window.innerWidth/Height`, `screen.width/height`, `navigator.connection`, เวลาและ Timezone)
+- แนบท้ายรายละเอียด Issue ในบล็อกพับเก็บได้ `<details><summary>📱 Device & Environment Info</summary>...</details>` พร้อมแสดงเป็นตารางอ่านง่ายในหน้าต่างรายละเอียดสำหรับนักพัฒนา
 
-4. **Antigravity 6-Stage Pipeline (ใช้ Antigravity ตัวเดียวครบวงจร)**:
-   - `open` — **1. รอรีวิว (Pending Antigravity)**
-   - `reviewing` — **2. กำลังรีวิว (Antigravity Reviewing)**
-   - `ready_to_fix` — **3. รอแก้ (Ready for Antigravity)**
-   - `fixing` — **4. กำลังแก้/Deploy (Antigravity Fixing & Deploying)**
-   - `deployed` — **5. Deploy แล้ว (Deployed & Verified)**
-   - `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected)**
+### 4. 💬 AI "Missing Info" Politeness Check (ถามกลับอย่างสุภาพเมื่อข้อมูลสั้นเกินไป)
+- หากผู้แจ้งพิมพ์สั้นหรือคลุมเครือเกินไป (เช่น *"พัง"*, *"กดไม่ได้"*, *"เว็บพังเข้าไม่ได้"*) ระบบจะยังไม่สร้าง Issue ที่ข้อมูลไม่ครบ
+- น้อง AI จะถามกลับด้วยคำถามภาษาไทยสั้นๆ เข้าใจง่าย 1 ข้อ (`clarifyingQuestion`) พร้อมปุ่มตัวเลือกตอบด่วน (`quickReplyOptions` 2–3 ปุ่ม เช่น *"เกิดที่หน้าล็อกอินเข้าระบบ"*, *"มีข้อความ Error ขึ้นบนหน้าจอ"*) ให้คลิกเลือกแล้วสร้าง Issue ที่สมบูรณ์ได้ทันที
 
----
-
-## 👑 วิธีตั้งค่าและเปลี่ยนอีเมลผู้ดูแลระบบสูงสุด (Super Admin Email)
-
-ระบบรองรับการกำหนดและเปลี่ยนอีเมลผู้ดูแลระบบสูงสุด (**Super Admin**) ได้ 2 วิธี:
-
-### วิธีที่ 1: กำหนดผ่านไฟล์ `.env.local` บนเซิร์ฟเวอร์ (แนะนำสำหรับการติดตั้งครั้งแรก)
-เปิดไฟล์ `.env.local` แล้วตั้งค่าตัวแปร `SUPER_ADMIN_EMAIL`:
-```env
-SUPER_ADMIN_EMAIL=your-admin@gmail.com
-```
-จากนั้นรีสตาร์ทแอปพลิเคชัน (`npm run dev` หรือ `systemctl restart issuemate-web`)
-
-### วิธีที่ 2: เปลี่ยนผ่านหน้าเว็บ UI ทันที (บันทึกลงฐานข้อมูล MongoDB)
-1. กดปุ่ม **"Login by Google"** มุมขวาบนของหน้าเว็บ แล้วล็อกอินด้วยอีเมล Admin ปัจจุบัน
-2. ไปที่แท็บ **"วิธีตั้งค่า Google OAuth & เปลี่ยนอีเมล Admin"**
-3. ในกล่อง **"วิธีเปลี่ยนอีเมลผู้ดูแลระบบสูงสุด (Super Admin Email)"** ให้กรอกอีเมล Gmail ใหม่แล้วกดปุ่ม **"เปลี่ยน Admin"** ระบบจะอัปเดตสิทธิ์ Super Admin ลงฐานข้อมูลทันทีโดยไม่ต้องรีสตาร์ทเซิร์ฟเวอร์
+### 5. ⚡ One-Click Dev Action Bar (แถบคำสั่งด่วนสำหรับนักพัฒนา)
+- ในหน้าต่างรายละเอียด Issue (`IssueDetailDrawer`) มีแถบคำสั่งด่วนสำหรับนักพัฒนาและ QA:
+  - **Copy Git Branch Command**: คัดลอกคำสั่ง `git checkout -b fix/issue-{code}-{slug}` ในคลิกเดียว
+  - **Copy Checklist for PR**: คัดลอกรายการ Markdown Checklist (`- [ ] ...`) สำหรับแปะใน Pull Request หรือใช้ตรวจทานซ้ำ (QA Retest)
 
 ---
 
-## 🔌 การเชื่อมต่อ MCP Server กับ Antigravity (ระบุ Project กันพลาด)
+## ✨ จุดเด่นหลักของระบบ (Core Capabilities)
 
-### ขั้นตอนที่ 1: สร้าง MCP Token ผูกกับโปรเจกต์ (`projectKey`)
-1. เปิดหน้าเว็บ `https://issue.dedezoom.com` แล้วกดปุ่ม **`MCP`** มุมซ้ายบน
-2. เลือก **รหัสโปรเจกต์ (`ระบุโปรเจกต์ กันพลาด`)** เช่น `SMLAIACC`, `DEVOPS`, `KMS`
-3. กรอก **อีเมล Gmail ที่ได้รับอนุญาต** แล้วกดปุ่ม **"สร้าง Token"** จะได้รหัส `ism_live_<40-hex>` ที่ล็อกเฉพาะโปรเจกต์นั้น
+1. **ระบบจำโปรเจกต์ล่าสุดที่ใช้ (`Last Active Project Memory`)**:
+   - จดจำโปรเจกต์ที่ทำงานล่าสุดไว้ใน `localStorage` และ `?project=KEY` เพื่อป้องกันการแจ้งหรือแก้ไขงานผิดโปรเจกต์
+2. **รองรับหัวข้อ "สอบถาม / ตั้งคำถาม" (`question`) & การตอบกลับพร้อมไฟล์ PDF/รูปภาพ**:
+   - ผู้ใช้ตั้งคำถามได้ง่าย ทีมงานแนบไฟล์ PDF คู่มือและรูปภาพตอบกลับพร้อมกดปุ่ม **"ส่งคำตอบพร้อมไฟล์แนบ & ปิดเรื่องว่าเรียบร้อย"** ในคลิกเดียว เปิดอ่าน PDF ในหน้าจอได้ทันที (`Inline PDF Viewer`)
+3. **ระบบสิทธิ์ผู้ใช้งานละเอียดถึงระดับโปรเจกต์ (`Granular Per-Project Permissions`)**:
+   - กำหนดสิทธิ์ราย Gmail แยกตามโปรเจกต์ได้ 5 ระดับ: `question_only` (ถามได้อย่างเดียว), `reporter` (แจ้งปัญหา & ถามได้), `viewer` (ดูอย่างเดียว), `developer` (ทีมแก้ไข/ตอบคำถาม), `project_admin` (ผู้ดูแลโปรเจกต์)
+4. **ความปลอดภัยระดับ Production (Hardened Auth & CSRF/XSS Protection)**:
+   - ล็อกอินผ่าน **Sign in with Google** เท่านั้น เซ็นคุกกี้ด้วย `HMAC-SHA256 (SESSION_SECRET)` พร้อมวันหมดอายุและ `sessionVersion`
+   - ซ่อนอีเมลส่วนตัว (`***`) สำหรับผู้ที่ไม่ได้เป็น Admin และบังคับตรวจสิทธิ์โปรเจกต์ทุก API รวมถึงการดาวน์โหลดไฟล์แนบ
 
-### ขั้นตอนที่ 2: ตั้งค่า MCP Config ใน Antigravity (ระบุ `?project=` และ `X-MCP-Project`)
+---
 
-#### รูปแบบที่ 1: เชื่อมต่อผ่าน HTTP Header + Project Lock (แนะนำ)
+## 🔌 การตั้งค่าเชื่อมต่อ MCP Server สำหรับ Antigravity, Claude Code และ Codex
+
+### ขั้นตอนที่ 1: สร้าง MCP API Token ผูกกับโปรเจกต์ (`projectKey`)
+1. เปิดเว็บ `https://issue.dedezoom.com` แล้วล็อกอินด้วย Google
+2. กดปุ่ม **`เชื่อมต่อ AI`** มุมซ้ายบน
+3. เลือก **โปรเจกต์ที่ต้องการล็อก (`projectKey`)** เช่น `SMLAIACC`, `DEVOPS`, `POS` แล้วกดปุ่ม **"สร้าง Token"** จะได้รหัส `ism_live_<40-hex>`
+
+---
+
+### ขั้นตอนที่ 2: ตั้งค่า MCP ตามเครื่องมือ AI ที่ใช้งาน
+
+#### A. สำหรับ Google Antigravity / Cursor / Windsurf (`mcp_config.json`)
 ```json
 {
   "mcpServers": {
     "issuemate": {
-      "url": "https://issue.dedezoom.com/mcp?project=SMLAIACC",
+      "url": "https://issue.dedezoom.com/mcp?project=YOUR_PROJECT_KEY",
       "headers": {
         "Authorization": "Bearer ism_live_YOUR_GENERATED_TOKEN",
-        "X-MCP-Project": "SMLAIACC"
+        "X-MCP-Project": "YOUR_PROJECT_KEY"
       }
     }
   }
 }
 ```
 
-#### รูปแบบที่ 2: เชื่อมต่อผ่าน URL Query Parameter
+#### B. สำหรับ Claude Code CLI (`.mcp.json` ในโฟลเดอร์โปรเจกต์ หรือคำสั่ง CLI)
+รันคำสั่งใน Terminal ของโปรเจกต์:
+```bash
+claude mcp add --transport http issuemate "https://issue.dedezoom.com/mcp?project=YOUR_PROJECT_KEY" \
+  --header "Authorization: Bearer ism_live_YOUR_GENERATED_TOKEN" \
+  --header "X-MCP-Project: YOUR_PROJECT_KEY"
+```
+หรือสร้างไฟล์ `.mcp.json` ที่รากของโปรเจกต์:
 ```json
 {
   "mcpServers": {
     "issuemate": {
-      "url": "https://issue.dedezoom.com/mcp?project=SMLAIACC&token=ism_live_YOUR_GENERATED_TOKEN"
+      "type": "http",
+      "url": "https://issue.dedezoom.com/mcp?project=YOUR_PROJECT_KEY",
+      "headers": {
+        "Authorization": "Bearer ism_live_YOUR_GENERATED_TOKEN",
+        "X-MCP-Project": "YOUR_PROJECT_KEY"
+      }
     }
   }
 }
 ```
-*(เปลี่ยน `SMLAIACC` เป็นรหัสย่อของโปรเจกต์ที่คุณต้องการให้ Antigravity ดูแล)*
+
+#### C. สำหรับ OpenAI Codex CLI (`~/.codex/config.toml`)
+เพิ่มการตั้งค่าในไฟล์ `~/.codex/config.toml`:
+```toml
+[mcp_servers.issuemate]
+url = "https://issue.dedezoom.com/mcp?project=YOUR_PROJECT_KEY"
+http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MCP-Project" = "YOUR_PROJECT_KEY" }
+```
 
 ---
 
-## 💬 วิธีสั่ง Prompt ให้กับ Antigravity สำหรับโปรเจกต์ใหม่ (เปิด Session ใหม่)
+## 💬 วิธีสั่ง Prompt ให้กับ Antigravity, Claude Code, Codex ฯลฯ สำหรับโปรเจกต์ใหม่ (เปิด Session ใหม่)
 
-เมื่อคุณเปิดโฟลเดอร์โค้ดโปรเจกต์ใหม่และ **เปิด Session ใหม่ใน Antigravity** สามารถคัดลอก Prompt ด้านล่างไปวางสั่งงานได้ทันที (หรือกดปุ่ม **"คัดลอก Prompt สั่ง Antigravity"** จากหน้าต่าง MCP บนเว็บซึ่งจะเติมรหัสโปรเจกต์ให้อัตโนมัติ):
+เมื่อคุณเปิดโฟลเดอร์โค้ดโปรเจกต์ใหม่และ **เปิด Session ใหม่ใน Antigravity, Claude Code หรือ Codex** สามารถคัดลอก Prompt ด้านล่างไปวางสั่งงานได้ทันที (เปลี่ยน `YOUR_PROJECT_KEY` และชื่อโปรเจกต์ให้ตรงกับงานของคุณ):
 
-### 1. Prompt สำหรับเปิด Session ใหม่ เพื่อดึงและเคลียร์งานทั้งหมดในโปรเจกต์
+### 1. Prompt มาตรฐานเมื่อเปิด Session ใหม่ (ดึงคิวงาน -> รีวิว -> แก้โค้ด -> ทดสอบ -> Deploy)
 ```text
-คุณกำลังดูแลโปรเจกต์ "SML Ai Account" (รหัสโปรเจกต์ใน IssueMate คือ projectKey="SMLAIACC")
-ให้เชื่อมต่อและใช้ MCP Server ชื่อ "issuemate" โดยระบุ projectKey="SMLAIACC" เสมอเพื่อกันพลาดข้ามโปรเจกต์ แล้วทำตามขั้นตอนนี้:
-1. เรียก MCP tool `get_ai_context` (ส่ง `projectKey: "SMLAIACC"`) เพื่อดึงรายการปัญหาทั้งหมดที่รอรีวิว (open) และรอแก้ไข (ready_to_fix) ของโปรเจกต์ SMLAIACC
-2. สำหรับแต่ละ Issue ให้เรียก `get_issue` เพื่ออ่านรายละเอียดและเปิดดูรูปภาพ/ไฟล์แนบทั้งหมดที่ผู้ใช้แนบไว้
+คุณกำลังดูแลโปรเจกต์ "ชื่อโปรเจกต์ของคุณ" (รหัสโปรเจกต์ใน IssueMate คือ projectKey="YOUR_PROJECT_KEY")
+ให้เชื่อมต่อและใช้ MCP Server ชื่อ "issuemate" โดยระบุ projectKey="YOUR_PROJECT_KEY" เสมอเพื่อกันพลาดข้ามโปรเจกต์ แล้วทำตามขั้นตอนนี้:
+1. เรียก MCP tool `get_ai_context` (ส่ง `projectKey: "YOUR_PROJECT_KEY"`) เพื่อดึงรายการปัญหาและคำถามทั้งหมดที่รอรีวิว (open) และรอแก้ไข (ready_to_fix) ของโปรเจกต์นี้
+2. สำหรับแต่ละ Issue ให้เรียก `get_issue` เพื่ออ่านรายละเอียด ขั้นตอนจำลองปัญหา ข้อมูลอุปกรณ์ (Device & Environment Info) และเปิดดูรูปภาพ/ไฟล์แนบทั้งหมดที่ผู้ใช้แนบไว้
 3. วิเคราะห์สาเหตุของปัญหา แล้วเรียก `submit_claude_review` บันทึกผลวิเคราะห์ (เลือก decision="fix" พร้อมระบุ fixInstructions และ targetFiles หรือ decision="wont_fix" หากไม่ต้องแก้)
-4. เรียก `claim_for_fix` เพื่อรับงานเข้าสู่สถานะกำลังแก้ (fixing) จากนั้นลงมือแก้ไขโค้ดในโปรเจกต์นี้ ทดสอบให้ผ่านจริง และ Deploy ขึ้นเซิร์ฟเวอร์
+4. เรียก `claim_for_fix` เพื่อรับงานเข้าสู่สถานะกำลังแก้ (fixing) จากนั้นลงมือแก้ไขโค้ดในโปรเจกต์นี้ รันทดสอบให้ผ่านจริง และ Deploy ขึ้นเซิร์ฟเวอร์
 5. เมื่อแก้ไขและ Deploy เสร็จเรียบร้อยแล้ว ให้เรียก `mark_deployed` บันทึกผลการแก้ไขและผลการ Deploy กลับเข้า IssueMate ทันที
 ```
 
-### 2. Prompt สำหรับสั่ง Antigravity ให้ถามยืนยันและเพิ่มโปรเจกต์ใหม่เข้า IssueMate แล้วเริ่มทำงาน
+### 2. Prompt สำหรับเริ่มโปรเจกต์ใหม่แกะกล่อง (ให้ AI ถามยืนยันรหัสโปรเจกต์ก่อนสร้างใน IssueMate)
 ```text
 ตอนนี้เรากำลังเริ่มโปรเจกต์ใหม่ ให้ใช้ MCP Server "issuemate" ดำเนินการดังนี้:
-1. ถามฉันก่อนว่าต้องการตั้งรหัสย่อโปรเจกต์ (key 2-10 ตัวอักษร), ชื่อเต็มของโปรเจกต์ (name) และคำอธิบายโปรเจกต์ (description) ว่าอย่างไร
+1. ถามฉันก่อนว่าต้องการตั้งรหัสย่อโปรเจกต์ (key 2-10 ตัวอักษรภาษาอังกฤษ/ตัวเลข), ชื่อเต็มของโปรเจกต์ (name) และคำอธิบายโปรเจกต์ (description) ว่าอย่างไร
 2. เมื่อฉันตอบยืนยันแล้ว ให้เรียก MCP tool `create_project` โดยส่ง `confirmedByUser: true` เพื่อสร้างโปรเจกต์ใน IssueMate
 3. เรียก `get_ai_context` โดยระบุ `projectKey` ของโปรเจกต์ใหม่เสมอห้ามปนกับโปรเจกต์อื่น แล้วเริ่มตรวจสอบและแก้ไข Issue ทั้งหมดของโปรเจกต์นี้
 ```
 
-### 3. Prompt สำหรับสั่งแก้ Issue เฉพาะข้อ (เช่น `SMLAIACC-1`)
+### 3. Prompt สำหรับสั่งแก้หรือตอบคำถาม Issue เฉพาะข้อ (เช่น `POS-12`)
 ```text
-คุณกำลังดูแลโปรเจกต์ [SMLAIACC] ให้ดึง Issue SMLAIACC-1 จาก MCP IssueMate (ระบุ projectKey="SMLAIACC") มาดำเนินการโดย Antigravity:
-1. เรียก get_issue (SMLAIACC-1) เพื่ออ่านรายละเอียดและดูรูปภาพ/ไฟล์แนบทั้งหมดใน Issue SMLAIACC-1
-2. วิเคราะห์สาเหตุของปัญหาแล้วบันทึกผลด้วย submit_claude_review
-3. ถ้าต้องแก้ไข ให้รับงาน (claim_for_fix) แก้ไขโค้ดในโปรเจกต์ [SMLAIACC] ทดสอบให้ผ่าน และ Deploy ขึ้นเซิร์ฟเวอร์
-4. บันทึกผลการแก้ไขและ Deploy กลับเข้า IssueMate ด้วย mark_deployed
+ให้ใช้ MCP Server "issuemate" (ระบุ projectKey="POS") ดึงข้อมูล Issue รหัส POS-12 ด้วย `get_issue`:
+- หากเป็นคำถามการใช้งาน (`type="question"`) ให้ตรวจสอบโค้ดจริงแล้วตอบกลับอย่างละเอียดพร้อมแนบไฟล์/รูปภาพผ่าน `converse_on_issue` และเปลี่ยนสถานะเป็น `deployed`
+- หากเป็นบั๊กหรือฟีเจอร์ ให้วิเคราะห์สาเหตุ บันทึก `submit_claude_review` -> `claim_for_fix` -> แก้ไขโค้ดและรันเทสต์ให้ผ่าน -> บันทึกผลด้วย `mark_deployed`
 ```
 
 ---
 
-## 🛠️ รายการ 14 MCP Tools สำหรับ Antigravity (ล็อกตาม Project)
+## 🛠️ รายการ 14 MCP Tools ในระบบ (ล็อกตาม Project)
 
 | Tool Name | รายละเอียดการทำงาน |
 | :--- | :--- |
-| `get_ai_context` | ดึงคิวงานที่รอ Antigravity รีวิว (`open`/`reviewing`) และคิวที่รอแก้ (`ready_to_fix`/`fixing`) เฉพาะโปรเจกต์ที่ระบุ |
+| `get_ai_context` | ดึงคิวงานที่รอรีวิว (`open`/`reviewing`) และคิวที่รอแก้ (`ready_to_fix`/`fixing`) เฉพาะโปรเจกต์ที่ระบุ |
+| `list_projects` | แสดงรายการโปรเจกต์ที่ Token นี้มีสิทธิ์เข้าถึง พร้อมจำนวน Issue คงค้าง |
+| `create_project` | สร้างโปรเจกต์ใหม่ (มี Confirmation Gate บังคับถามยืนยันผู้ใช้ก่อนด้วย `confirmedByUser: true`) |
+| `list_issues` | ค้นหาและกรองรายการ Issue ตามโปรเจกต์ สถานะ ประเภท และความสำคัญ |
+| `get_issue` | ดึงข้อมูลเชิงลึกของ Issue พร้อม URL รูปภาพ ไฟล์แนบ และประวัติทั้งหมด (บล็อกทันทีหากข้ามโปรเจกต์) |
+| `find_similar_issues` | ค้นหา Issue หรือคำถามที่คล้ายกันในโปรเจกต์ก่อนสร้างรายการใหม่ |
+| `create_issue` | สร้างรายการปัญหา/คำถามใหม่ พร้อมอัปโหลดรูปภาพหรือไฟล์แนบ (Base64 / Text / URL) เข้า MinIO S3 |
 | `submit_claude_review` | บันทึกผลวิเคราะห์สาเหตุ: เลือก `decision: "fix"` (ย้ายไป `ready_to_fix`) หรือ `decision: "wont_fix"` |
-| `claim_for_fix` | รับงานเข้าสู่สถานะ `fixing` ก่อนเริ่มแก้ไขโค้ด |
+| `claim_for_fix` | รับงานจาก `ready_to_fix` เข้าสู่สถานะ `fixing` แบบ Atomic (ป้องกัน Agent ชนกัน) |
 | `mark_deployed` | บันทึกผลการแก้ไขและผลการ Deploy ขึ้นเซิร์ฟเวอร์ (`deployed`) |
-| `converse_on_issue` | ตอบคอมเมนต์ แนบรูปภาพ/ไฟล์ประกอบ ติ๊กถูกงานย่อย และเปลี่ยนสถานะในคำสั่งเดียว |
-| `create_issue` | สร้างรายการปัญหาใหม่ในโปรเจกต์ พร้อมแนบรูปภาพ (URL หรือ Base64) เข้า MinIO S3 อัตโนมัติ |
-| `batch_create_issues` | สร้างหลาย Issues พร้อมกันจากการสแกนโค้ดหรือ Log |
-| `find_similar_issues` | ค้นหา Issue ที่คล้ายกันในโปรเจกต์ก่อนสร้างรายการใหม่ |
-| `manage_subtasks` | เพิ่มหรือติ๊กถูก Checklist งานย่อยใน Issue |
-| `get_issue` | ดึงข้อมูลเชิงลึกของ Issue พร้อม URL รูปภาพและไฟล์แนบทั้งหมด (บล็อกทันทีหากอยู่คนละโปรเจกต์) |
-| `list_issues` | ค้นหาและกรองรายการ Issue ตามโปรเจกต์ สถานะ และความสำคัญ |
-| `update_issue` | อัปเดตข้อมูลและสถานะของ Issue |
-| `add_comment` | เพิ่มคอมเมนต์พร้อมแนบไฟล์ |
+| `claim_and_plan_issue` | รับเรื่องพร้อมแตก Subtasks แผนการแก้ไขและโพสต์คอมเมนต์ในคำสั่งเดียว |
+| `converse_on_issue` | ตอบคอมเมนต์ แนบไฟล์ PDF/รูปภาพประกอบ ติ๊กถูกงานย่อย กดรีแอคชัน และเปลี่ยนสถานะ |
+| `update_issue_status` | อัปเดตสถานะของ Issue ตามขั้นตอนใน Pipeline พร้อมบันทึกหมายเหตุ |
 | `get_monitor_summary` | ดึงสรุปสถิติ KPI ของ Pipeline แบบเรียลไทม์ |
 
 ---
@@ -154,14 +171,13 @@ SUPER_ADMIN_EMAIL=your-admin@gmail.com
 ```bash
 cp .env.example .env.local
 ```
-กำหนดค่าการเชื่อมต่อ MongoDB, MinIO และ `SUPER_ADMIN_EMAIL` ในไฟล์ `.env.local` (ไฟล์ `.env*` ถูกตั้งค่าใน `.gitignore` เพื่อป้องกันรหัสผ่านและความลับรั่วไหล)
+ตั้งค่า `MONGODB_URI`, `MINIO_*`, `SUPER_ADMIN_EMAIL` และ `SESSION_SECRET` (ความยาวอย่างน้อย 32 ตัวอักษร) ในไฟล์ `.env.local` *(ไฟล์ `.env*` ถูกเพิกเฉยใน `.gitignore` เพื่อป้องกันรหัสผ่านและความลับรั่วไหล)*
 
 ### 2. ติดตั้ง Dependencies และรันเซิร์ฟเวอร์
 ```bash
 npm install
 npm run dev
 ```
-เปิดเบราว์เซอร์ไปที่ `http://localhost:3300`
 
 ### 3. คำสั่งตรวจสอบและทดสอบระบบ (Verification & E2E Tests)
 ```bash

@@ -26,7 +26,10 @@ export function getMongoClient(): Promise<MongoClient> {
       directConnection: true,
       serverSelectionTimeoutMS: 5000,
     });
-    globalForMongo.clientPromise = client.connect();
+    globalForMongo.clientPromise = client.connect().catch((err) => {
+      globalForMongo.clientPromise = undefined;
+      throw err;
+    });
   }
   return globalForMongo.clientPromise;
 }
@@ -169,11 +172,13 @@ export async function ensureIndexesAndSeed(db: Db, forceReseed = false) {
 
   const now = new Date().toISOString();
 
-  // 1. Clean out all old demo issues and demo attachments from MinIO
-  const oldAttachmentKeys = await attachmentKeysOf(issuesCol, {});
-  await issuesCol.deleteMany({});
-  if (oldAttachmentKeys.length > 0) {
-    await deleteObjectsFromMinio(oldAttachmentKeys).catch(() => {});
+  // 1. Only wipe existing issues/attachments when explicitly requested via forceReseed
+  if (forceReseed) {
+    const oldAttachmentKeys = await attachmentKeysOf(issuesCol, {});
+    await issuesCol.deleteMany({});
+    if (oldAttachmentKeys.length > 0) {
+      await deleteObjectsFromMinio(oldAttachmentKeys).catch(() => {});
+    }
   }
 
   // 2. Clean out old demo tokens & demo users (keep only allowed users and Super Admin)
@@ -223,8 +228,8 @@ export async function ensureIndexesAndSeed(db: Db, forceReseed = false) {
         { upsert: true }
       );
     }
-  } else {
-    // Only reset nextIssueNumber to 1 when clearing all issues
+  } else if (forceReseed) {
+    // Only reset nextIssueNumber to 1 when explicitly clearing all issues
     await projectsCol.updateMany({}, { $set: { nextIssueNumber: 1, updatedAt: now } });
   }
 

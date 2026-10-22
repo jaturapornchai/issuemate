@@ -14,12 +14,13 @@ export type IssueStatusFilter =
   | "overdue";       // ยังไม่จบและเลยกำหนด SLA
 
 export type IssueType =
-  | "incident"    // ระบบล่ม / Incident (SEV-1 / SEV-2)
-  | "bug"         // บั๊กโค้ด / ข้อผิดพลาด (Bug)
-  | "deployment"  // Deploy / CI-CD / Container / Caddy
-  | "performance" // คอขวดความเร็ว / DB Slow Query / Memory
-  | "security"    // ความปลอดภัย / Secret / SSL / Auth
-  | "feature";    // ฟีเจอร์ใหม่ / ปรับปรุงสถาปัตยกรรม
+  | "question"    // สอบถาม / ตั้งคำถาม / ขอคำแนะนำการใช้งาน
+  | "incident"    // ด่วนมาก / ระบบล่ม / เข้าใช้งานไม่ได้
+  | "bug"         // แจ้งปัญหาการใช้งาน / ข้อมูลผิดพลาด
+  | "deployment"  // อัปเดตระบบ / ติดตั้งโปรแกรม
+  | "performance" // ระบบช้า / ค้าง / ประมวลผลนาน
+  | "security"    // สิทธิ์การใช้งาน / รหัสผ่าน / ความปลอดภัย
+  | "feature";    // ขอเพิ่มฟีเจอร์ / ปรับปรุงหน้าจอ
 
 export type IssuePriority = "critical" | "high" | "medium" | "low";
 

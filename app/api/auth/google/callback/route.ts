@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
-  SUPER_ADMIN_EMAIL,
   getAllowedUser,
+  getSuperAdminEmail,
   getGoogleOAuthConfig,
   getPublicOrigin,
+  isEmailAllowedByDomain,
   signSessionToken,
   touchAllowedUserLogin,
   SESSION_COOKIE_NAME,
@@ -35,7 +36,8 @@ export async function GET(req: Request) {
 
   const cookieStore = await cookies();
   const savedState = cookieStore.get("issuemate_oauth_state")?.value;
-  if (savedState && state && savedState !== state) {
+  // Fail closed: a missing state cookie is a forged/replayed callback (login CSRF)
+  if (!savedState || !state || savedState !== state) {
     return NextResponse.redirect(
       `${origin}/?google_auth_error=${encodeURIComponent("State ไม่ตรงกัน กรุณาลองเข้าสู่ระบบใหม่อีกครั้ง")}`
     );
@@ -76,7 +78,7 @@ export async function GET(req: Request) {
     });
     const profile = await profileRes.json();
 
-    if (!profileRes.ok || !profile.email) {
+    if (!profileRes.ok || !profile.email || profile.email_verified === false) {
       return NextResponse.redirect(
         `${origin}/?google_auth_error=${encodeURIComponent("ไม่สามารถดึงข้อมูลอีเมลจากบัญชี Google ได้")}`
       );
@@ -85,45 +87,46 @@ export async function GET(req: Request) {
     const email = String(profile.email).trim().toLowerCase();
 
     // Check if this Gmail is in the Admin-approved allowed_users list
-    const allowed = await getAllowedUser(email);
+    const [allowed, superAdminEmail] = await Promise.all([
+      getAllowedUser(email),
+      getSuperAdminEmail(),
+    ]);
     if (!allowed) {
       return NextResponse.redirect(
         `${origin}/?google_auth_error=${encodeURIComponent(
-          `ไม่ได้รับอนุญาต: อีเมล ${email} ยังไม่อยู่ในรายชื่อผู้มีสิทธิ์เข้าใช้งาน กรุณาติดต่อ Admin (${SUPER_ADMIN_EMAIL}) เพื่อเพิ่มอีเมลนี้ก่อน`
+          `ไม่ได้รับอนุญาต: อีเมล ${email} ยังไม่อยู่ในรายชื่อผู้มีสิทธิ์เข้าใช้งาน กรุณาติดต่อผู้ดูแลระบบ (Admin) เพื่อเพิ่มอีเมลนี้ก่อน`
         )}`
       );
     }
 
-    if (cfg.allowedDomain) {
-      const domains = cfg.allowedDomain
-        .split(",")
-        .map((d) => d.trim().toLowerCase())
-        .filter(Boolean);
-      const emailDomain = email.split("@")[1] || "";
-      if (domains.length > 0 && !domains.includes(emailDomain) && !domains.includes(email)) {
-        return NextResponse.redirect(
-          `${origin}/?google_auth_error=${encodeURIComponent(
-            `อีเมล ${email} ไม่อยู่ในโดเมนที่อนุญาต (${cfg.allowedDomain})`
-          )}`
-        );
-      }
+    if (!isEmailAllowedByDomain(email, cfg.allowedDomain, superAdminEmail)) {
+      return NextResponse.redirect(
+        `${origin}/?google_auth_error=${encodeURIComponent(
+          `อีเมล ${email} ไม่อยู่ในโดเมนที่อนุญาต (${cfg.allowedDomain})`
+        )}`
+      );
     }
 
-    const displayName = String(profile.name || allowed.name || email.split("@")[0]);
-    const isAdmin = allowed.role === "admin" || email === SUPER_ADMIN_EMAIL;
+    const googleProfileName = profile.name ? String(profile.name).trim() : "";
+    const displayName = String(allowed.name || googleProfileName || email.split("@")[0]);
+    const isAdmin = allowed.role === "admin" || email === superAdminEmail;
 
     const user: AuthUser = {
       id: String(profile.sub || email),
       email,
       name: displayName,
+      googleName: googleProfileName || allowed.googleName,
       picture: profile.picture ? String(profile.picture) : undefined,
       role: allowed.jobTitle || (isAdmin ? "Super Admin" : "DevOps Engineer"),
       isAdmin,
       allowedProjects: allowed.allowedProjects || ["ALL"],
+      defaultPermission: allowed.defaultPermission,
+      projectPermissions: allowed.projectPermissions,
+      sessionVersion: allowed.sessionVersion ?? 0,
       provider: "google",
     };
 
-    await touchAllowedUserLogin(email, { name: displayName });
+    await touchAllowedUserLogin(email, { name: googleProfileName || displayName });
 
     const db = await getDb();
     await db.collection("users").updateOne(
@@ -144,6 +147,7 @@ export async function GET(req: Request) {
       path: "/",
       maxAge: 60 * 60 * 24 * 30,
       sameSite: "lax",
+      secure: origin.startsWith("https://"),
     });
     res.cookies.delete("issuemate_oauth_state");
     return res;

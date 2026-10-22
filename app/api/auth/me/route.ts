@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import {
   addAllowedUser,
-  getAllowedUser,
+  adminRequiredResponse,
+  assertCsrfSafe,
+  authRequiredResponse,
+  bumpUserSessionVersion,
+  canUserAccessProject,
   getCurrentUser,
   getGoogleOAuthConfig,
   getPublicOrigin,
@@ -11,88 +15,135 @@ import {
   listAllowedUsers,
   removeAllowedUser,
   saveGoogleOAuthConfig,
-  signSessionToken,
-  touchAllowedUserLogin,
   SESSION_COOKIE_NAME,
-  type AuthUser,
+  type AllowedUserRecord,
 } from "@/lib/auth";
 import { listProjects } from "@/lib/issue-service";
 
 export const runtime = "nodejs";
 
+function decorateAllowedUsersForAdmin(
+  users: AllowedUserRecord[],
+  superAdminEmail: string
+) {
+  return users.map((u) => ({
+    ...u,
+    isSuperAdmin: u.email === superAdminEmail,
+  }));
+}
+
 export async function GET(req: Request) {
   const origin = getPublicOrigin(req);
-  const [user, cfg, allowedUsers, superAdminEmail, projects] = await Promise.all([
+  const [user, cfg, superAdminEmail] = await Promise.all([
     getCurrentUser(),
     getGoogleOAuthConfig(),
-    listAllowedUsers(),
     getSuperAdminEmail(),
-    listProjects(),
   ]);
 
-  const isAuthenticatedAdmin =
-    Boolean(user?.isAdmin) || user?.email === superAdminEmail;
+  const isAdmin = Boolean(user?.isAdmin);
 
-  // Mask emails and Super Admin personal name when not logged in as Admin
-  const publicAllowedUsers = allowedUsers.map((u) => {
+  const loginInfo = {
+    superAdminMasked: maskEmail(superAdminEmail),
+    oauthConfigured: Boolean(cfg.clientId && cfg.clientSecret),
+    clientIdMasked: cfg.clientId ? `${cfg.clientId.slice(0, 14)}...` : "",
+    allowedDomain: isAdmin ? cfg.allowedDomain || "" : "",
+    origin,
+    callbackUrl: `${origin}/api/auth/google/callback`,
+  };
+
+  // Not logged in: only what the login screen needs, no member list or projects
+  if (!user) {
+    return NextResponse.json({
+      user: null,
+      superAdminEmail: maskEmail(superAdminEmail),
+      allowedUsers: [],
+      projects: [],
+      clientId: "",
+      ...loginInfo,
+    });
+  }
+
+  const [allowedUsers, projects] = await Promise.all([listAllowedUsers(), listProjects()]);
+
+  const visibleProjects = isAdmin
+    ? projects
+    : projects.filter((p) => canUserAccessProject(user, p.key));
+
+  // Non-admin callers only receive their own membership row so member directory / permissions are not leaked
+  const visibleAllowedUsers = (
+    isAdmin ? allowedUsers : allowedUsers.filter((u) => u.email === user.email)
+  ).map((u) => {
     const isSuper = u.email === superAdminEmail;
+    const canSee = isAdmin || user.email === u.email;
+    const emailLocalPart = u.email.split("@")[0]?.toLowerCase() || "";
+    const safeName =
+      canSee
+        ? u.name
+        : isSuper
+        ? "Super Admin"
+        : u.name.trim().toLowerCase() === emailLocalPart
+        ? maskEmail(u.email).split("@")[0]
+        : u.name;
     return {
       ...u,
-      name:
-        isAuthenticatedAdmin || user?.email === u.email
-          ? u.name
-          : isSuper
-          ? "Super Admin"
-          : u.name,
-      email: isAuthenticatedAdmin || user?.email === u.email ? u.email : maskEmail(u.email),
-      addedBy:
-        isAuthenticatedAdmin || !u.addedBy?.includes("@")
-          ? u.addedBy
-          : maskEmail(u.addedBy),
+      name: safeName,
+      email: canSee ? u.email : maskEmail(u.email),
+      addedBy: isAdmin || !u.addedBy?.includes("@") ? u.addedBy : maskEmail(u.addedBy),
       isSuperAdmin: isSuper,
     };
   });
 
   return NextResponse.json({
     user,
-    superAdminEmail: isAuthenticatedAdmin ? superAdminEmail : maskEmail(superAdminEmail),
-    superAdminMasked: maskEmail(superAdminEmail),
-    allowedUsers: publicAllowedUsers,
-    projects,
-    oauthConfigured: Boolean(cfg.clientId && cfg.clientSecret),
-    clientIdMasked: cfg.clientId ? `${cfg.clientId.slice(0, 14)}...` : "",
-    clientId: isAuthenticatedAdmin ? cfg.clientId || "" : "",
-    allowedDomain: cfg.allowedDomain || "",
-    origin,
-    callbackUrl: `${origin}/api/auth/google/callback`,
+    superAdminEmail: isAdmin ? superAdminEmail : maskEmail(superAdminEmail),
+    allowedUsers: visibleAllowedUsers,
+    projects: visibleProjects,
+    clientId: isAdmin ? cfg.clientId || "" : "",
+    ...loginInfo,
   });
 }
 
 export async function POST(req: Request) {
+  const csrfErr = assertCsrfSafe(req);
+  if (csrfErr) return csrfErr;
+
   try {
     const body = await req.json();
 
     if (body.action === "logout") {
+      const currentUser = await getCurrentUser();
+      if (currentUser?.email) {
+        await bumpUserSessionVersion(currentUser.email);
+      }
       const res = NextResponse.json({ user: null });
       res.cookies.delete(SESSION_COOKIE_NAME);
       return res;
     }
 
+    const knownActions = [
+      "change_super_admin",
+      "add_allowed_user",
+      "update_allowed_user",
+      "remove_allowed_user",
+      "save_oauth_config",
+    ];
+    if (!knownActions.includes(body.action)) {
+      return NextResponse.json(
+        { error: "เข้าสู่ระบบได้ทาง Sign in with Google เท่านั้น" },
+        { status: 400 }
+      );
+    }
+
+    // Identity comes from the signed session only, never from body fields
     const [currentUser, superAdminEmail] = await Promise.all([
       getCurrentUser(),
       getSuperAdminEmail(),
     ]);
-
-    const callerAdminEmail = String(body.adminEmail || "")
-      .trim()
-      .toLowerCase();
-    const isCallerAdmin =
-      Boolean(currentUser?.isAdmin) ||
-      currentUser?.email === superAdminEmail ||
-      (callerAdminEmail && callerAdminEmail === superAdminEmail);
+    if (!currentUser) return authRequiredResponse();
+    if (!currentUser.isAdmin) return adminRequiredResponse();
 
     if (body.action === "change_super_admin") {
-      if (!isCallerAdmin) {
+      if (currentUser.email !== superAdminEmail) {
         return NextResponse.json(
           {
             error: "เฉพาะผู้ดูแลระบบสูงสุด (Super Admin) เท่านั้นที่สามารถเปลี่ยนอีเมล Admin ได้",
@@ -109,19 +160,11 @@ export async function POST(req: Request) {
         status: "super_admin_updated",
         superAdminEmail: nextAdminEmail,
         superAdminMasked: maskEmail(nextAdminEmail),
-        allowedUsers,
+        allowedUsers: decorateAllowedUsersForAdmin(allowedUsers, nextAdminEmail),
       });
     }
 
     if (body.action === "add_allowed_user" || body.action === "update_allowed_user") {
-      if (!isCallerAdmin) {
-        return NextResponse.json(
-          {
-            error: "เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถเพิ่มหรือแก้ไขสิทธิ์ Gmail ผู้ใช้งานได้",
-          },
-          { status: 403 }
-        );
-      }
       const allowedUser = await addAllowedUser({
         email: String(body.email || ""),
         name: body.name ? String(body.name) : undefined,
@@ -129,92 +172,50 @@ export async function POST(req: Request) {
         allowedProjects: Array.isArray(body.allowedProjects)
           ? body.allowedProjects.map(String)
           : undefined,
+        defaultPermission: body.defaultPermission
+          ? String(body.defaultPermission)
+          : undefined,
+        projectPermissions:
+          body.projectPermissions && typeof body.projectPermissions === "object"
+            ? (body.projectPermissions as Record<string, string>)
+            : undefined,
         jobTitle: body.jobTitle ? String(body.jobTitle) : undefined,
-        addedBy: currentUser?.email || superAdminEmail,
+        addedBy: currentUser.email,
       });
       const allowedUsers = await listAllowedUsers();
       return NextResponse.json({
         status: "added",
-        allowedUser,
-        allowedUsers,
+        allowedUser: {
+          ...allowedUser,
+          isSuperAdmin: allowedUser.email === superAdminEmail,
+        },
+        allowedUsers: decorateAllowedUsersForAdmin(allowedUsers, superAdminEmail),
       });
     }
 
     if (body.action === "remove_allowed_user") {
-      if (!isCallerAdmin) {
+      const targetEmail = String(body.email || "").trim().toLowerCase();
+      if (targetEmail === superAdminEmail) {
         return NextResponse.json(
-          {
-            error: "เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถลบสิทธิ์ผู้ใช้งานได้",
-          },
-          { status: 403 }
+          { error: "ไม่สามารถลบสิทธิ์ของ Super Admin ได้" },
+          { status: 400 }
         );
       }
-      const targetEmail = String(body.email || "").trim().toLowerCase();
       await removeAllowedUser(targetEmail);
       const allowedUsers = await listAllowedUsers();
       return NextResponse.json({
         status: "removed",
-        allowedUsers,
+        allowedUsers: decorateAllowedUsersForAdmin(allowedUsers, superAdminEmail),
       });
     }
 
-    if (body.action === "save_oauth_config") {
-      const saved = await saveGoogleOAuthConfig({
-        clientId: String(body.clientId || ""),
-        clientSecret: body.clientSecret ? String(body.clientSecret) : undefined,
-        allowedDomain: body.allowedDomain ? String(body.allowedDomain) : "",
-      });
-      return NextResponse.json({ status: "saved", ...saved });
-    }
-
-    // Login with Gmail (must be in allowed_users managed by Admin)
-    const email = String(body.email || "").trim().toLowerCase();
-    if (!email || !email.includes("@")) {
-      return NextResponse.json(
-        { error: "กรุณาระบุอีเมล Gmail ที่ได้รับอนุญาตเพื่อเข้าสู่ระบบ" },
-        { status: 400 }
-      );
-    }
-
-    const allowed = await getAllowedUser(email);
-    if (!allowed) {
-      return NextResponse.json(
-        {
-          error: `อีเมล ${email} ยังไม่ได้รับอนุญาตให้เข้าใช้งาน กรุณาให้ผู้ดูแลระบบ (Admin) เพิ่มอีเมลนี้ก่อน`,
-        },
-        { status: 403 }
-      );
-    }
-
-    const name = String(body.name || allowed.name || email.split("@")[0]).trim();
-    const role = String(
-      body.role ||
-        allowed.jobTitle ||
-        (allowed.role === "admin" ? "Super Admin" : "DevOps Engineer")
-    ).trim();
-    const isAdmin = allowed.role === "admin" || email === superAdminEmail;
-
-    await touchAllowedUserLogin(email, { name });
-
-    const user: AuthUser = {
-      id: `user-${email}`,
-      email,
-      name,
-      role,
-      isAdmin,
-      allowedProjects: allowed.allowedProjects || ["ALL"],
-      provider: body.provider === "google" ? "google" : "devops",
-    };
-
-    const token = signSessionToken(user);
-    const res = NextResponse.json({ user });
-    res.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-      sameSite: "lax",
+    // save_oauth_config
+    const saved = await saveGoogleOAuthConfig({
+      clientId: String(body.clientId || ""),
+      clientSecret: body.clientSecret ? String(body.clientSecret) : undefined,
+      allowedDomain: body.allowedDomain ? String(body.allowedDomain) : "",
     });
-    return res;
+    return NextResponse.json({ status: "saved", ...saved });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Auth action failed";
     return NextResponse.json({ error: msg }, { status: 400 });

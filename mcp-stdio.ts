@@ -2,6 +2,16 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 process.chdir(path.dirname(fileURLToPath(import.meta.url)));
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {
+  // .env.local is optional
+}
+try {
+  process.loadEnvFile?.(".env");
+} catch {
+  // .env is optional
+}
 
 async function main(): Promise<void> {
   const { createIssueMateMcpServer } = await import("./lib/mcp-server");

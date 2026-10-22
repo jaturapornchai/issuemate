@@ -2,10 +2,12 @@ import crypto from "crypto";
 import { getDb } from "./mongodb";
 import {
   getSuperAdminEmail,
-  getAllowedUser,
-  isEmailAllowed,
+  getAuthUserByEmail,
   canUserAccessProject,
+  validateUserProjectAction,
+  type AuthUser,
 } from "./auth";
+import { normalizeProjectKey } from "./issue-service";
 
 export interface McpTokenRecord {
   id: string;
@@ -29,45 +31,8 @@ export interface McpTokenRecord {
 
 export type McpTokenPublic = Omit<McpTokenRecord, "tokenHash">;
 
-export interface McpAuthSettings {
-  enforceTokenAuth: boolean;
-  updatedAt: string;
-}
-
-const META_SETTINGS_ID = "mcp_auth_settings";
-
 function hashToken(rawToken: string): string {
   return crypto.createHash("sha256").update(rawToken).digest("hex");
-}
-
-export async function getMcpAuthSettings(): Promise<McpAuthSettings> {
-  const db = await getDb();
-  const doc = await db
-    .collection<{ _id: string } & Partial<McpAuthSettings>>("system_meta")
-    .findOne({ _id: META_SETTINGS_ID });
-
-  return {
-    enforceTokenAuth: Boolean(doc?.enforceTokenAuth),
-    updatedAt: doc?.updatedAt || new Date().toISOString(),
-  };
-}
-
-export async function setMcpAuthSettings(enforceTokenAuth: boolean): Promise<McpAuthSettings> {
-  const db = await getDb();
-  const updatedAt = new Date().toISOString();
-  await db
-    .collection<{ _id: string } & McpAuthSettings>("system_meta")
-    .updateOne(
-      { _id: META_SETTINGS_ID },
-      {
-        $set: {
-          enforceTokenAuth: Boolean(enforceTokenAuth),
-          updatedAt,
-        },
-      },
-      { upsert: true }
-    );
-  return { enforceTokenAuth: Boolean(enforceTokenAuth), updatedAt };
 }
 
 export async function listMcpTokens(ownerEmail?: string): Promise<McpTokenPublic[]> {
@@ -103,19 +68,24 @@ export async function generateMcpToken(input: {
     throw new Error("กรุณาระบุอีเมล Gmail ที่ต้องการผูกกับ Token (เช่น user@gmail.com)");
   }
 
-  const cleanProjectKey = (input.projectKey || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+  const cleanProjectKey =
+    input.projectKey?.trim().toUpperCase() === "ALL"
+      ? "ALL"
+      : normalizeProjectKey(input.projectKey || "");
   if (!cleanProjectKey) {
     throw new Error("กรุณาเลือกโปรเจกต์ (Project Key) ที่ต้องการผูกกับ MCP Token เพื่อป้องกันการสั่งงานผิดโปรเจกต์");
   }
 
-  const allowedUser = await getAllowedUser(cleanEmail);
+  const allowedUser = await getAuthUserByEmail(cleanEmail);
   if (!allowedUser) {
     throw new Error(
       `อีเมล ${cleanEmail} ยังไม่ได้รับอนุญาตจากผู้ดูแลระบบ (Admin) กรุณาให้ Admin เพิ่มอีเมลนี้ในระบบก่อนสร้าง MCP Token`
     );
+  }
+
+  // An ALL token would let a project-restricted member pick any project via X-MCP-Project
+  if (cleanProjectKey === "ALL" && !allowedUser.isAdmin) {
+    throw new Error("Token แบบทุกโปรเจกต์ (ALL) สร้างได้เฉพาะผู้ดูแลระบบ (Admin) กรุณาเลือกโปรเจกต์ที่ต้องการ");
   }
 
   if (!canUserAccessProject(allowedUser, cleanProjectKey)) {
@@ -126,10 +96,23 @@ export async function generateMcpToken(input: {
     );
   }
 
+  const permCheck = validateUserProjectAction(
+    allowedUser,
+    cleanProjectKey,
+    "generate_mcp_token"
+  );
+  if (!permCheck.allowed) {
+    throw new Error(permCheck.reason || `ไม่มีสิทธิ์สร้าง MCP Token ในโปรเจกต์ [${cleanProjectKey}]`);
+  }
+
   const cleanName = (input.name || "").trim() || "Antigravity";
   const cleanOwnerName =
     (input.ownerName || "").trim() || allowedUser.name || cleanEmail.split("@")[0];
-  const agentRole = input.agentRole || "antigravity_fixer";
+  const requestedRole = input.agentRole || "antigravity_fixer";
+  const agentRole =
+    requestedRole === "admin" && !allowedUser.isAdmin
+      ? "antigravity_fixer"
+      : requestedRole;
 
   const randomHex = crypto.randomBytes(20).toString("hex");
   const rawToken = `ism_live_${randomHex}`;
@@ -163,9 +146,11 @@ export async function generateMcpToken(input: {
   };
 }
 
-export async function revokeMcpToken(id: string): Promise<boolean> {
+/** ownerEmail set = only revoke when the token belongs to that user (non-admin callers) */
+export async function revokeMcpToken(id: string, ownerEmail?: string): Promise<boolean> {
   const db = await getDb();
-  const res = await db.collection<McpTokenRecord>("mcp_tokens").deleteOne({ id });
+  const filter = ownerEmail ? { id, ownerEmail: ownerEmail.trim().toLowerCase() } : { id };
+  const res = await db.collection<McpTokenRecord>("mcp_tokens").deleteOne(filter);
   return (res.deletedCount || 0) > 0;
 }
 
@@ -195,14 +180,18 @@ export function extractProjectFromRequest(req: Request): string | null {
   const headerProj =
     req.headers.get("x-mcp-project") || req.headers.get("x-project-key") || "";
   if (headerProj.trim()) {
-    return headerProj.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return headerProj.trim().toUpperCase() === "ALL"
+      ? "ALL"
+      : normalizeProjectKey(headerProj);
   }
   try {
     const url = new URL(req.url);
     const qProj =
       url.searchParams.get("project") || url.searchParams.get("projectKey") || "";
     if (qProj.trim()) {
-      return qProj.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      return qProj.trim().toUpperCase() === "ALL"
+        ? "ALL"
+        : normalizeProjectKey(qProj);
     }
   } catch {
     // ignore URL parse error
@@ -214,23 +203,19 @@ export async function verifyMcpRequestToken(req: Request): Promise<{
   allowed: boolean;
   error?: string;
   tokenRecord?: McpTokenPublic;
+  /** Token owner with permissions re-derived from allowed_users on every request */
+  owner?: AuthUser;
+  ownerUser?: AuthUser;
   boundProjectKey?: string;
 }> {
-  const settings = await getMcpAuthSettings();
   const rawToken = extractTokenFromRequest(req);
   const requestProject = extractProjectFromRequest(req);
 
   if (!rawToken) {
-    if (settings.enforceTokenAuth) {
-      return {
-        allowed: false,
-        error:
-          "MCP Server เปิดโหมดบังคับใช้ Token ที่ผูกกับ Gmail และโปรเจกต์ (Strict Token Auth) กรุณาแนบ Header 'Authorization: Bearer ism_live_...' หรือ '?token=ism_live_...'",
-      };
-    }
     return {
-      allowed: true,
-      boundProjectKey: requestProject || undefined,
+      allowed: false,
+      error:
+        "MCP Server ต้องใช้ Token ที่ผูกกับ Gmail และโปรเจกต์ กรุณาแนบ Header 'Authorization: Bearer ism_live_...' หรือ '?token=ism_live_...'",
     };
   }
 
@@ -252,8 +237,8 @@ export async function verifyMcpRequestToken(req: Request): Promise<{
     };
   }
 
-  const emailStillAllowed = await isEmailAllowed(found.ownerEmail);
-  if (!emailStillAllowed) {
+  const owner = await getAuthUserByEmail(found.ownerEmail);
+  if (!owner) {
     return {
       allowed: false,
       error: `อีเมล ${found.ownerEmail} ถูกยกเลิกสิทธิ์การใช้งานโดยผู้ดูแลระบบ (Admin)`,
@@ -283,6 +268,8 @@ export async function verifyMcpRequestToken(req: Request): Promise<{
       ...publicRecord,
       projectKey: tokenProject,
     },
+    owner,
+    ownerUser: owner,
     boundProjectKey: resolvedProject,
   };
 }

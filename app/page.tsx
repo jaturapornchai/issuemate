@@ -21,6 +21,9 @@ import {
   Eye,
   Wrench,
   XCircle,
+  HelpCircle,
+  BookmarkCheck,
+  ShieldCheck,
 } from "lucide-react";
 import type {
   ProjectRecord,
@@ -32,7 +35,11 @@ import type {
   IssuePriority,
   AttachmentRecord,
 } from "@/lib/types";
-import type { AuthUser } from "@/lib/auth";
+import {
+  type AuthUser,
+  getUserProjectPermission,
+  PROJECT_PERMISSION_CONFIG,
+} from "@/lib/permissions";
 import {
   MonitorDashboardView,
   type MonitorDrillDown,
@@ -53,6 +60,9 @@ import {
 type ProjectWithCounts = ProjectRecord & { openCount: number; totalCount: number };
 type ViewMode = "monitor" | "table" | "kanban" | "roadmap";
 
+const LAST_PROJECT_STORAGE_KEY = "issuemate:lastProjectKey";
+const LAST_SPECIFIC_PROJECT_STORAGE_KEY = "issuemate:lastSpecificProjectKey";
+
 const STATUS_FILTER_LABEL: Record<
   Exclude<IssueStatusFilter, IssueStatus | "all">,
   string
@@ -65,6 +75,8 @@ const STATUS_FILTER_LABEL: Record<
 export default function IssueMateAppPage() {
   const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
   const [selectedProjectKey, setSelectedProjectKey] = useState<string>("ALL");
+  const [lastSpecificProjectKey, setLastSpecificProjectKey] = useState<string>("");
+  const [hasRestoredProject, setHasRestoredProject] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
   const [issues, setIssues] = useState<IssueRecord[]>([]);
@@ -73,6 +85,7 @@ export default function IssueMateAppPage() {
 
   // Auth User (Google Login / DevOps Session)
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [isGoogleLoginOpen, setIsGoogleLoginOpen] = useState<boolean>(false);
   const [authErrorNotice, setAuthErrorNotice] = useState<string | null>(null);
 
@@ -87,22 +100,101 @@ export default function IssueMateAppPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState<boolean>(false);
   const [isCreateIssueOpen, setIsCreateIssueOpen] = useState<boolean>(false);
+  const [createIssueInitialType, setCreateIssueInitialType] =
+    useState<IssueType>("bug");
   const [isAiMcpOpen, setIsAiMcpOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
 
   const latestFetchId = useRef(0);
 
-  // Check current user session & URL query params for Google OAuth callback
+  // Helper to select a project and persist it as the Last Active Project
+  const selectProject = useCallback((rawKey: string) => {
+    const cleanKey = (rawKey || "ALL").trim().toUpperCase();
+    setSelectedProjectKey(cleanKey);
+
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(LAST_PROJECT_STORAGE_KEY, cleanKey);
+        if (cleanKey !== "ALL") {
+          setLastSpecificProjectKey(cleanKey);
+          window.localStorage.setItem(LAST_SPECIFIC_PROJECT_STORAGE_KEY, cleanKey);
+        }
+        const url = new URL(window.location.href);
+        if (cleanKey === "ALL") {
+          url.searchParams.delete("project");
+        } else {
+          url.searchParams.set("project", cleanKey);
+        }
+        window.history.replaceState({}, "", url.toString());
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, []);
+
+  // Remember a specific project (when user picks a project in Create Issue or MCP Modal)
+  const rememberSpecificProject = useCallback(
+    (rawKey: string, alsoSwitchFilter = true) => {
+      const cleanKey = (rawKey || "").trim().toUpperCase();
+      if (!cleanKey || cleanKey === "ALL") return;
+      setLastSpecificProjectKey(cleanKey);
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(LAST_SPECIFIC_PROJECT_STORAGE_KEY, cleanKey);
+        } catch {
+          // ignore
+        }
+      }
+      if (alsoSwitchFilter) {
+        selectProject(cleanKey);
+      }
+    },
+    [selectProject]
+  );
+
+  const openCreateModalWithType = useCallback((type: IssueType) => {
+    setCreateIssueInitialType(type);
+    setIsCreateIssueOpen(true);
+  }, []);
+
+  // Restore last used project from URL ?project= or localStorage on mount
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => {
-        if (d.user) setCurrentUser(d.user);
+        setCurrentUser(d.user || null);
+        if (!d.user) setIsGoogleLoginOpen(true);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
 
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
+      const urlProject = url.searchParams.get("project")?.trim().toUpperCase();
+      const storedSelected = window.localStorage
+        .getItem(LAST_PROJECT_STORAGE_KEY)
+        ?.trim()
+        .toUpperCase();
+      const storedSpecific = window.localStorage
+        .getItem(LAST_SPECIFIC_PROJECT_STORAGE_KEY)
+        ?.trim()
+        .toUpperCase();
+
+      if (storedSpecific && storedSpecific !== "ALL") {
+        setLastSpecificProjectKey(storedSpecific);
+      }
+      if (urlProject && urlProject !== "ALL") {
+        setSelectedProjectKey(urlProject);
+        setLastSpecificProjectKey(urlProject);
+        window.localStorage.setItem(LAST_PROJECT_STORAGE_KEY, urlProject);
+        window.localStorage.setItem(LAST_SPECIFIC_PROJECT_STORAGE_KEY, urlProject);
+      } else if (storedSelected) {
+        setSelectedProjectKey(storedSelected);
+      } else if (storedSpecific && storedSpecific !== "ALL") {
+        setSelectedProjectKey(storedSpecific);
+      }
+      setHasRestoredProject(true);
+
       const authError =
         url.searchParams.get("auth_error") || url.searchParams.get("google_auth_error");
       if (authError) {
@@ -120,6 +212,15 @@ export default function IssueMateAppPage() {
 
   const fetchAllData = useCallback(async () => {
     const fetchId = ++latestFetchId.current;
+    if (!currentUser) {
+      // Logged out: drop whatever the previous session could see
+      setProjects([]);
+      setIssues([]);
+      setMonitorStats(null);
+      setSelectedIssue(null);
+      setIsLoading(!authChecked);
+      return;
+    }
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
@@ -173,6 +274,8 @@ export default function IssueMateAppPage() {
     sortBy,
     sortDir,
     selectedIssue?.code,
+    currentUser,
+    authChecked,
   ]);
 
   useEffect(() => {
@@ -223,7 +326,7 @@ export default function IssueMateAppPage() {
 
   const handleDrillDown = (f: MonitorDrillDown) => {
     resetFilters();
-    if (f.projectKey) setSelectedProjectKey(f.projectKey);
+    if (f.projectKey) selectProject(f.projectKey);
     if (f.status) setStatusFilter(f.status);
     if (f.priority) setPriorityFilter(f.priority);
     if (f.type) setTypeFilter(f.type);
@@ -291,12 +394,19 @@ export default function IssueMateAppPage() {
     code: string,
     author: string,
     body: string,
-    attachments: AttachmentRecord[]
+    attachments: AttachmentRecord[],
+    options?: { isResolution?: boolean; nextStatus?: IssueStatus }
   ) => {
     const res = await fetch(`/api/issues/${encodeURIComponent(code)}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author, body, attachments }),
+      body: JSON.stringify({
+        author,
+        body,
+        attachments,
+        isResolution: options?.isResolution,
+        nextStatus: options?.nextStatus,
+      }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -330,8 +440,8 @@ export default function IssueMateAppPage() {
 
   const handleQuickUpvote = async (code: string) => {
     try {
-      const voter =
-        currentUser?.email || `devops-${Math.floor(Math.random() * 900 + 100)}`;
+      if (!currentUser) return;
+      const voter = currentUser.email;
       const res = await fetch(`/api/issues/${encodeURIComponent(code)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -346,9 +456,14 @@ export default function IssueMateAppPage() {
   };
 
   const handleReseedSampleData = async () => {
+    if (!window.confirm("ยืนยันล้างข้อมูล Issues ทั้งหมดและไฟล์แนบ? ย้อนกลับไม่ได้")) return;
     try {
       setIsLoading(true);
-      await fetch("/api/seed", { method: "POST" });
+      await fetch("/api/seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
       await fetchAllData();
     } catch (err) {
       console.error("Reseed error:", err);
@@ -360,12 +475,58 @@ export default function IssueMateAppPage() {
     currentUser &&
     !currentUser.isAdmin &&
     Array.isArray(currentUser.allowedProjects) &&
-    currentUser.allowedProjects.length > 0 &&
     !currentUser.allowedProjects.includes("ALL")
       ? projects.filter((p) => currentUser.allowedProjects.includes(p.key))
       : projects;
 
+  // Keep selectedProjectKey and lastSpecificProjectKey valid once visibleProjects loads
+  useEffect(() => {
+    if (!hasRestoredProject || visibleProjects.length === 0) return;
+    if (
+      selectedProjectKey !== "ALL" &&
+      !visibleProjects.some((p) => p.key === selectedProjectKey)
+    ) {
+      const fallback = visibleProjects[0]?.key || "ALL";
+      selectProject(fallback);
+    }
+    if (
+      !lastSpecificProjectKey ||
+      !visibleProjects.some((p) => p.key === lastSpecificProjectKey)
+    ) {
+      const firstKey =
+        selectedProjectKey !== "ALL"
+          ? selectedProjectKey
+          : visibleProjects[0]?.key || "";
+      if (firstKey) {
+        setLastSpecificProjectKey(firstKey);
+      }
+    }
+  }, [
+    hasRestoredProject,
+    visibleProjects,
+    selectedProjectKey,
+    lastSpecificProjectKey,
+    selectProject,
+  ]);
+
   const currentProject = visibleProjects.find((p) => p.key === selectedProjectKey);
+  const rememberedSpecificProject = visibleProjects.find(
+    (p) => p.key === (selectedProjectKey !== "ALL" ? selectedProjectKey : lastSpecificProjectKey)
+  );
+  const effectiveDefaultProjectKey =
+    selectedProjectKey !== "ALL"
+      ? selectedProjectKey
+      : lastSpecificProjectKey || visibleProjects[0]?.key || "DEVOPS";
+
+  const activeProjectPermission = currentUser
+    ? getUserProjectPermission(currentUser, effectiveDefaultProjectKey)
+    : "developer";
+
+  const selectedIssuePermission =
+    selectedIssue && currentUser
+      ? getUserProjectPermission(currentUser, selectedIssue.projectKey)
+      : "developer";
+
   const totalOpenAllProjects = visibleProjects.reduce(
     (sum, p) => sum + (p.openCount || 0),
     0
@@ -383,10 +544,10 @@ export default function IssueMateAppPage() {
             </div>
             <div className="min-w-0 space-y-1">
               <h1 className="text-sm font-bold leading-none tracking-tight text-white">
-                IssueMate DevOps
+                IssueMate แจ้งปัญหา
               </h1>
               <p className="whitespace-nowrap text-[10px] font-medium leading-none text-emerald-400">
-                Antigravity Pipeline
+                สอบถาม & ติดตามงานง่ายๆ
               </p>
             </div>
           </div>
@@ -395,24 +556,75 @@ export default function IssueMateAppPage() {
             onClick={() => setIsAiMcpOpen(true)}
             data-testid="open-mcp-guide-btn"
             className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 px-2 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25 cursor-pointer"
-            title="ตั้งค่าและสร้าง MCP Token สำหรับ Antigravity"
+            title="ตั้งค่าและสร้าง MCP Token สำหรับเชื่อมต่อ AI (Antigravity)"
           >
             <Terminal className="h-3 w-3" />
-            <span>MCP</span>
+            <span>เชื่อมต่อ AI</span>
           </button>
         </div>
 
-        {/* Primary Action: Submit DevOps Issue */}
+        {/* Primary Action: Submit Issue or Ask Question */}
         <div className="p-3 border-b border-slate-800/80 space-y-2">
-          <button
-            type="button"
-            data-testid="open-create-issue-btn"
-            onClick={() => setIsCreateIssueOpen(true)}
-            className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>แจ้งปัญหา / เพิ่มรายการใหม่</span>
-          </button>
+          {rememberedSpecificProject && (
+            <div
+              data-testid="remembered-project-banner"
+              className="flex items-center justify-between gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1.5 text-[11px]"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <BookmarkCheck className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                <span className="truncate text-emerald-200">
+                  จำโปรเจกต์ล่าสุด:{" "}
+                  <strong className="font-mono text-white">
+                    {rememberedSpecificProject.key}
+                  </strong>
+                </span>
+              </div>
+              {selectedProjectKey === "ALL" && (
+                <button
+                  type="button"
+                  data-testid="resume-last-project-btn"
+                  onClick={() => selectProject(rememberedSpecificProject.key)}
+                  className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/30 cursor-pointer"
+                >
+                  เปิดใช้ต่อ
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeProjectPermission === "viewer" ? (
+            <div
+              data-testid="sidebar-viewer-only-notice"
+              className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2 text-[11px] text-slate-300"
+            >
+              สิทธิ์ของคุณในโปรเจกต์นี้คือ{" "}
+              <strong className="text-white">ดูข้อมูลอย่างเดียว</strong>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-1.5">
+              {activeProjectPermission !== "question_only" && (
+                <button
+                  type="button"
+                  data-testid="open-create-issue-btn"
+                  onClick={() => openCreateModalWithType("bug")}
+                  className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>แจ้งปัญหา / เพิ่มรายการใหม่</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                data-testid="quick-ask-question-btn"
+                onClick={() => openCreateModalWithType("question")}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-pink-500/40 bg-pink-500/15 px-3 text-xs font-semibold text-pink-200 transition hover:bg-pink-500/25 cursor-pointer"
+              >
+                <HelpCircle className="h-4 w-4 text-pink-400" />
+                <span>สอบถาม / ตั้งคำถามการใช้งาน</span>
+              </button>
+            </div>
+          )}
 
           <button
             type="button"
@@ -422,7 +634,7 @@ export default function IssueMateAppPage() {
           >
             <span className="flex items-center gap-1.5">
               <Command className="h-3.5 w-3.5 text-emerald-400" />
-              <span>ค้นหา / สั่งงานด่วน</span>
+              <span>ค้นหาด่วน / สลับหน้าจอ</span>
             </span>
             <kbd className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
               Ctrl+K
@@ -433,25 +645,8 @@ export default function IssueMateAppPage() {
         {/* Main View Switcher in Sidebar */}
         <div className="px-3 pt-3 pb-2 space-y-1">
           <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            มุมมอง DevOps Pipeline
+            เลือกมุมมองการใช้งาน
           </p>
-          <button
-            type="button"
-            data-testid="nav-monitor-btn"
-            onClick={() => setViewMode("monitor")}
-            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
-              viewMode === "monitor"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                : "text-slate-300 hover:bg-slate-800/70"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-400" />
-              <span>Monitor & Pipeline KPI</span>
-            </span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          </button>
-
           <button
             type="button"
             data-testid="nav-table-btn"
@@ -464,7 +659,7 @@ export default function IssueMateAppPage() {
           >
             <span className="flex items-center gap-2">
               <Table2 className="h-4 w-4 text-sky-400" />
-              <span>ตาราง DevOps Issues (100%)</span>
+              <span>รายการแจ้งปัญหา & คำถามทั้งหมด</span>
             </span>
           </button>
 
@@ -480,8 +675,25 @@ export default function IssueMateAppPage() {
           >
             <span className="flex items-center gap-2">
               <Kanban className="h-4 w-4 text-purple-400" />
-              <span>กระดาน 6-Stage Kanban</span>
+              <span>บอร์ดติดตามความคืบหน้า (6 ขั้น)</span>
             </span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="nav-monitor-btn"
+            onClick={() => setViewMode("monitor")}
+            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
+              viewMode === "monitor"
+                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                : "text-slate-300 hover:bg-slate-800/70"
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-emerald-400" />
+              <span>ภาพรวมสถิติ & ความคืบหน้า</span>
+            </span>
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
           </button>
 
           <button
@@ -496,23 +708,23 @@ export default function IssueMateAppPage() {
           >
             <span className="flex items-center gap-2">
               <Rocket className="h-4 w-4 text-amber-400" />
-              <span>โหวตความสำคัญ & Roadmap</span>
+              <span>โหวตความต้องการ & แผนงาน</span>
             </span>
           </button>
         </div>
 
-        {/* DevOps Projects List */}
+        {/* Projects List */}
         <div className="flex-1 overflow-y-auto px-3 py-2">
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              โปรเจกต์ทีม DevOps ({visibleProjects.length})
+              โปรเจกต์ของคุณ ({visibleProjects.length})
             </span>
             <button
               type="button"
               data-testid="open-create-project-btn"
               onClick={() => setIsCreateProjectOpen(true)}
               className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/15 cursor-pointer"
-              title="สร้างโปรเจกต์ DevOps ใหม่"
+              title="สร้างโปรเจกต์ใหม่"
             >
               <FolderPlus className="h-3.5 w-3.5" />
               <span>เพิ่มโปรเจกต์</span>
@@ -523,7 +735,7 @@ export default function IssueMateAppPage() {
             <button
               type="button"
               data-testid="project-item-ALL"
-              onClick={() => setSelectedProjectKey("ALL")}
+              onClick={() => selectProject("ALL")}
               className={`flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-xs font-medium transition cursor-pointer ${
                 selectedProjectKey === "ALL"
                   ? "bg-slate-800 text-white border border-slate-700"
@@ -532,7 +744,7 @@ export default function IssueMateAppPage() {
             >
               <span className="flex items-center gap-2 truncate">
                 <FolderKanban className="h-4 w-4 text-emerald-400 shrink-0" />
-                <span className="truncate">ทุกโปรเจกต์ DevOps รวมกัน</span>
+                <span className="truncate">ดูรวมทุกโปรเจกต์</span>
               </span>
               <span className="rounded-full bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-slate-300">
                 {totalOpenAllProjects}
@@ -541,15 +753,19 @@ export default function IssueMateAppPage() {
 
             {visibleProjects.map((proj) => {
               const isSelected = selectedProjectKey === proj.key;
+              const isLastRemembered = lastSpecificProjectKey === proj.key;
+              const perm = currentUser
+                ? getUserProjectPermission(currentUser, proj.key)
+                : null;
               return (
                 <button
                   key={proj.key}
                   type="button"
                   data-testid={`project-item-${proj.key}`}
-                  onClick={() => setSelectedProjectKey(proj.key)}
+                  onClick={() => selectProject(proj.key)}
                   className={`flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-xs font-medium transition cursor-pointer ${
                     isSelected
-                      ? "bg-slate-800 text-white border border-slate-700"
+                      ? "bg-emerald-500/15 text-white border border-emerald-500/40"
                       : "text-slate-300 hover:bg-slate-800/60"
                   }`}
                 >
@@ -558,29 +774,61 @@ export default function IssueMateAppPage() {
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ backgroundColor: proj.color }}
                     />
-                    <span className="shrink-0 font-mono text-[11px] font-bold text-slate-400">
+                    <span className="shrink-0 font-mono text-[11px] font-bold text-slate-300">
                       {proj.key}
                     </span>
                     <span className="truncate">{proj.name}</span>
                   </div>
-                  <span className="ml-1 shrink-0 rounded-full bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-emerald-400">
-                    {proj.openCount}
-                  </span>
+                  <div className="ml-1 flex shrink-0 items-center gap-1">
+                    {isLastRemembered && (
+                      <span
+                        title="โปรเจกต์ล่าสุดที่ใช้งาน"
+                        className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-semibold text-emerald-300"
+                      >
+                        ล่าสุด
+                      </span>
+                    )}
+                    {perm && perm !== "none" && !currentUser?.isAdmin && (
+                      <span
+                        title={`สิทธิ์ของคุณ: ${PROJECT_PERMISSION_CONFIG[perm].label}`}
+                        className="rounded bg-slate-800 px-1 py-0.5 text-[9px] text-slate-300"
+                      >
+                        {PROJECT_PERMISSION_CONFIG[perm].shortLabel}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-emerald-400">
+                      {proj.openCount}
+                    </span>
+                  </div>
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Footer Storage & AI Status */}
+        {/* Footer Storage & Active Permission Status */}
         <div className="border-t border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-400 space-y-1">
+          {currentUser && activeProjectPermission !== "none" && (
+            <div
+              data-testid="sidebar-user-permission-indicator"
+              className="flex items-center justify-between pb-1 border-b border-slate-800/80"
+            >
+              <span className="inline-flex items-center gap-1 text-slate-300">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                สิทธิ์ ({effectiveDefaultProjectKey}):
+              </span>
+              <span className="font-semibold text-emerald-300">
+                {PROJECT_PERMISSION_CONFIG[activeProjectPermission].shortLabel}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
-            <span>ฐานข้อมูล:</span>
-            <span className="font-mono text-emerald-400">MongoDB + MinIO S3</span>
+            <span>ระบบจัดเก็บไฟล์:</span>
+            <span className="font-mono text-emerald-400">PDF / รูปภาพ / เอกสาร</span>
           </div>
           <div className="flex items-center justify-between">
-            <span>AI Agent:</span>
-            <span className="font-mono text-cyan-300">Antigravity</span>
+            <span>ผู้ช่วยดูแลระบบ:</span>
+            <span className="font-mono text-cyan-300">ทีมงาน & Antigravity</span>
           </div>
         </div>
       </aside>
@@ -589,32 +837,81 @@ export default function IssueMateAppPage() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top Toolbar (Baseline aligned 2-row header) */}
         <header className="flex flex-col border-b border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/85 to-slate-900/95 px-5 py-2 gap-2">
-          {/* Row 1: Title on Left, Search + Refresh + Login by Google on Right */}
+          {/* Row 1: Quick Project Switcher & Title on Left, Ask Question + Report Issue + Search + Google Login on Right */}
           <div className="flex h-9 items-center justify-between gap-3">
             <div className="flex h-9 min-w-0 items-center gap-2">
-              <span className="inline-flex h-6 shrink-0 items-center rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 font-mono text-xs font-bold leading-none text-emerald-400">
-                {selectedProjectKey === "ALL" ? "DEVOPS PIPELINE" : currentProject?.key}
-              </span>
+              <div className="flex h-9 items-center gap-1.5">
+                <span className="text-[11px] font-medium text-slate-400 whitespace-nowrap hidden xl:inline">
+                  โปรเจกต์ที่ทำงานอยู่:
+                </span>
+                <select
+                  value={selectedProjectKey}
+                  data-testid="header-project-select"
+                  onChange={(e) => selectProject(e.target.value)}
+                  className="h-8 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-2.5 font-mono text-xs font-bold text-emerald-300 focus:border-emerald-400 focus:outline-none cursor-pointer"
+                  title="สลับโปรเจกต์ (ระบบจะจำโปรเจกต์ที่เลือกไว้ให้อัตโนมัติ)"
+                >
+                  <option value="ALL" className="bg-slate-900 text-white">
+                    ทุกโปรเจกต์รวมกัน ({totalOpenAllProjects})
+                  </option>
+                  {visibleProjects.map((p) => (
+                    <option
+                      key={p.key}
+                      value={p.key}
+                      className="bg-slate-900 text-white"
+                    >
+                      {p.key} — {p.name} ({p.openCount})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <h2
                 className="truncate text-sm font-bold leading-none text-white"
                 data-testid="header-title"
               >
                 {selectedProjectKey === "ALL"
-                  ? "ศูนย์ควบคุมแจ้งปัญหา & ติดตามงาน (Antigravity รีวิว → แก้ไข → Deploy)"
+                  ? "ศูนย์รับแจ้งปัญหา สอบถามการใช้งาน และติดตามการแก้ไข"
                   : currentProject?.name}
               </h2>
+
+              {rememberedSpecificProject && (
+                <span
+                  data-testid="remembered-project-badge"
+                  className="hidden 2xl:inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-300"
+                >
+                  <BookmarkCheck className="h-3 w-3" />
+                  จำโปรเจกต์ล่าสุด: {rememberedSpecificProject.key}
+                </span>
+              )}
             </div>
 
             <div className="flex h-9 shrink-0 items-center gap-2">
-              <button
-                type="button"
-                data-testid="new-issue-btn"
-                onClick={() => setIsCreateIssueOpen(true)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white shadow-xs transition hover:bg-emerald-500 cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="h-4 w-4" />
-                <span>แจ้งปัญหา</span>
-              </button>
+              {activeProjectPermission !== "viewer" && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="header-ask-question-btn"
+                    onClick={() => openCreateModalWithType("question")}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-pink-500/40 bg-pink-500/15 px-3 text-xs font-bold text-pink-200 transition hover:bg-pink-500/25 cursor-pointer whitespace-nowrap"
+                  >
+                    <HelpCircle className="h-4 w-4 text-pink-400" />
+                    <span>สอบถาม / ตั้งคำถาม</span>
+                  </button>
+
+                  {activeProjectPermission !== "question_only" && (
+                    <button
+                      type="button"
+                      data-testid="new-issue-btn"
+                      onClick={() => openCreateModalWithType("bug")}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white shadow-xs transition hover:bg-emerald-500 cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>แจ้งปัญหา</span>
+                    </button>
+                  )}
+                </>
+              )}
 
               {/* Search Box */}
               <div className="relative flex h-9 items-center">
@@ -624,8 +921,8 @@ export default function IssueMateAppPage() {
                   data-testid="search-issues-input"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="ค้นหารหัส, หัวข้อ, เซิร์ฟเวอร์, คำสั่งแก้..."
-                  className="h-9 w-56 rounded-lg border border-slate-700 bg-slate-950 pl-8 pr-8 text-xs text-white placeholder:text-slate-500 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 lg:w-72"
+                  placeholder="ค้นหารหัส, หัวข้อคำถาม, ปัญหาที่แจ้ง..."
+                  className="h-9 w-52 rounded-lg border border-slate-700 bg-slate-950 pl-8 pr-8 text-xs text-white placeholder:text-slate-500 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 lg:w-64"
                 />
                 {searchQuery && (
                   <button
@@ -644,7 +941,7 @@ export default function IssueMateAppPage() {
                 type="button"
                 onClick={() => void fetchAllData()}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300 cursor-pointer"
-                title="รีเฟรชข้อมูล"
+                title="รีเฟรชข้อมูลล่าสุด"
               >
                 <RefreshCw
                   className={`h-4 w-4 ${isLoading ? "animate-spin text-emerald-400" : ""}`}
@@ -661,7 +958,7 @@ export default function IssueMateAppPage() {
                     ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
                     : "border-slate-700 bg-white text-slate-900 hover:bg-slate-100 shadow-xs"
                 }`}
-                title="เข้าสู่ระบบด้วย Google หรือดูวิธีตั้งค่า Google OAuth 2.0"
+                title="เข้าสู่ระบบด้วย Google หรือจัดการสิทธิ์สมาชิกแต่ละโปรเจกต์"
               >
                 {currentUser?.picture ? (
                   <img
@@ -673,13 +970,13 @@ export default function IssueMateAppPage() {
                   <GoogleIcon className="h-4 w-4 shrink-0" />
                 )}
                 <span className="truncate max-w-[160px]">
-                  {currentUser ? currentUser.name : "Login by Google"}
+                  {currentUser ? currentUser.name : "เข้าสู่ระบบด้วย Google"}
                 </span>
               </button>
             </div>
           </div>
 
-          {/* Row 2: 6-Stage DevOps Pipeline Filter Tabs + Type & Priority Selectors */}
+          {/* Row 2: 6-Stage Filter Tabs + Type & Priority Selectors */}
           <div className="flex h-9 items-center justify-between gap-2">
             <div className="inline-flex h-9 items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 overflow-x-auto">
               <button
@@ -706,7 +1003,7 @@ export default function IssueMateAppPage() {
               >
                 <Eye className="h-3.5 w-3.5 text-amber-400" />
                 <span>
-                  1-2. รอรีวิว (
+                  1-2. รอตรวจสอบ / รอคำตอบ (
                   {(monitorStats?.openIssues ?? 0) +
                     (monitorStats?.reviewingIssues ?? 0)}
                   )
@@ -723,7 +1020,7 @@ export default function IssueMateAppPage() {
                 }`}
               >
                 <Wrench className="h-3.5 w-3.5 text-cyan-400" />
-                <span>3. รอแก้ ({monitorStats?.readyToFixIssues ?? 0})</span>
+                <span>3. รอทีมงานแก้ไข ({monitorStats?.readyToFixIssues ?? 0})</span>
               </button>
               <button
                 type="button"
@@ -736,7 +1033,9 @@ export default function IssueMateAppPage() {
                 }`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span>5. Deploy แล้ว ({monitorStats?.deployedIssues ?? 0})</span>
+                <span>
+                  5. แก้ไข/ตอบเรียบร้อย ({monitorStats?.deployedIssues ?? 0})
+                </span>
               </button>
               <button
                 type="button"
@@ -749,24 +1048,41 @@ export default function IssueMateAppPage() {
                 }`}
               >
                 <XCircle className="h-3.5 w-3.5 text-slate-400" />
-                <span>6. ไม่แก้ ({monitorStats?.wontFixIssues ?? 0})</span>
+                <span>6. ปิดเรื่อง / ไม่ต้องแก้ ({monitorStats?.wontFixIssues ?? 0})</span>
               </button>
             </div>
 
             <div className="flex h-9 shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                data-testid="filter-type-question-pill"
+                onClick={() =>
+                  setTypeFilter((prev) => (prev === "question" ? "all" : "question"))
+                }
+                className={`inline-flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition cursor-pointer whitespace-nowrap ${
+                  typeFilter === "question"
+                    ? "border-pink-500/50 bg-pink-500/20 text-pink-200"
+                    : "border-slate-700 bg-slate-950 text-slate-300 hover:border-pink-500/30 hover:text-pink-200"
+                }`}
+              >
+                <HelpCircle className="h-3.5 w-3.5 text-pink-400" />
+                <span>เฉพาะคำถาม ({monitorStats?.byType?.question ?? 0})</span>
+              </button>
+
               <select
                 value={typeFilter}
                 data-testid="type-filter-select"
                 onChange={(e) => setTypeFilter(e.target.value as IssueType | "all")}
                 className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
               >
-                <option value="all">ทุกประเภท DevOps</option>
-                <option value="incident">Incident / ระบบล่ม</option>
-                <option value="bug">Bug / โค้ดผิดพลาด</option>
-                <option value="deployment">Deploy / CI-CD / Infra</option>
-                <option value="performance">Performance / DB ช้า</option>
-                <option value="security">Security / ความปลอดภัย</option>
-                <option value="feature">Feature / ปรับปรุง</option>
+                <option value="all">ทุกหัวข้อ (ปัญหา & คำถาม)</option>
+                <option value="question">สอบถาม / ตั้งคำถามการใช้งาน</option>
+                <option value="bug">แจ้งปัญหา / ทำงานผิดปกติ</option>
+                <option value="incident">ระบบล่ม / ใช้งานไม่ได้ด่วน</option>
+                <option value="feature">ขอเพิ่มฟีเจอร์ / ปรับปรุงระบบ</option>
+                <option value="performance">ระบบช้า / ค้าง</option>
+                <option value="deployment">อัปเดตระบบ / เซิร์ฟเวอร์</option>
+                <option value="security">ความปลอดภัย / สิทธิ์การใช้งาน</option>
               </select>
 
               <select
@@ -775,11 +1091,11 @@ export default function IssueMateAppPage() {
                 onChange={(e) => setPriorityFilter(e.target.value as IssuePriority | "all")}
                 className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
               >
-                <option value="all">ทุกระดับความสำคัญ</option>
-                <option value="critical">วิกฤต (Critical)</option>
-                <option value="high">สูง (High)</option>
-                <option value="medium">ปานกลาง (Medium)</option>
-                <option value="low">ต่ำ (Low)</option>
+                <option value="all">ทุกระดับความเร่งด่วน</option>
+                <option value="critical">เร่งด่วนมาก (กระทบงานทันที)</option>
+                <option value="high">สำคัญสูง (ควรรีบดูแล)</option>
+                <option value="medium">สำคัญปานกลาง (ทั่วไป)</option>
+                <option value="low">ไม่เร่งด่วน (สอบถาม/เสนอแนะ)</option>
               </select>
             </div>
           </div>
@@ -793,7 +1109,7 @@ export default function IssueMateAppPage() {
           >
             <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-300">
               <Filter className="h-3.5 w-3.5" />
-              กำลังกรอง
+              กำลังกรองข้อมูล
             </span>
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
               {activeFilters.map((f) => (
@@ -834,7 +1150,7 @@ export default function IssueMateAppPage() {
               onSelectIssue={(issue) => setSelectedIssue(issue)}
               onDrillDown={handleDrillDown}
               onRefresh={() => void fetchAllData()}
-              onReseedSampleData={handleReseedSampleData}
+              onReseedSampleData={currentUser?.isAdmin ? handleReseedSampleData : undefined}
               isRefreshing={isLoading}
             />
           )}
@@ -856,6 +1172,10 @@ export default function IssueMateAppPage() {
               issues={issues}
               onSelectIssue={(issue) => setSelectedIssue(issue)}
               onQuickStatusChange={handleQuickStatusChange}
+              canChangeStatus={
+                activeProjectPermission === "developer" ||
+                activeProjectPermission === "project_admin"
+              }
             />
           )}
 
@@ -864,7 +1184,7 @@ export default function IssueMateAppPage() {
               issues={issues}
               onSelectIssue={(issue) => setSelectedIssue(issue)}
               onUpvote={handleQuickUpvote}
-              onOpenCreateIdea={() => setIsCreateIssueOpen(true)}
+              onOpenCreateIdea={() => openCreateModalWithType("feature")}
             />
           )}
         </main>
@@ -879,6 +1199,7 @@ export default function IssueMateAppPage() {
         onAddComment={handleAddComment}
         onUploadFile={handleUploadFile}
         currentUserName={currentUser?.name}
+        userPermission={selectedIssuePermission}
       />
 
       {/* Command Palette (Ctrl+K) */}
@@ -886,13 +1207,15 @@ export default function IssueMateAppPage() {
         open={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         issues={issues}
-        projects={projects}
+        projects={visibleProjects}
         onSelectIssue={(issue) => setSelectedIssue(issue)}
-        onSelectProject={(key) => setSelectedProjectKey(key)}
+        onSelectProject={(key) => selectProject(key)}
         onChangeView={(v) => setViewMode(v)}
-        onOpenCreateIssue={() => setIsCreateIssueOpen(true)}
+        onOpenCreateIssue={() => openCreateModalWithType("bug")}
         onOpenCreateProject={() => setIsCreateProjectOpen(true)}
         onOpenMcpGuide={() => setIsAiMcpOpen(true)}
+        canCreateIssue={activeProjectPermission !== "viewer" && activeProjectPermission !== "none"}
+        isAdmin={Boolean(currentUser?.isAdmin)}
       />
 
       {/* Google Login & Setup Guide Modal */}
@@ -920,7 +1243,7 @@ export default function IssueMateAppPage() {
         open={isCreateProjectOpen}
         onClose={() => setIsCreateProjectOpen(false)}
         onCreated={(proj) => {
-          setSelectedProjectKey(proj.key);
+          rememberSpecificProject(proj.key, true);
           void fetchAllData();
         }}
       />
@@ -928,14 +1251,18 @@ export default function IssueMateAppPage() {
       <CreateIssueModal
         open={isCreateIssueOpen}
         projects={visibleProjects}
-        defaultProjectKey={selectedProjectKey}
+        defaultProjectKey={effectiveDefaultProjectKey}
+        initialType={createIssueInitialType}
+        currentUser={currentUser}
+        onProjectChange={(projKey) => rememberSpecificProject(projKey, true)}
         onClose={() => setIsCreateIssueOpen(false)}
         onCreated={(created) => {
+          rememberSpecificProject(created.projectKey, true);
           setSelectedIssue(created);
           void fetchAllData();
         }}
         currentUserName={
-          currentUser ? `${currentUser.name} <${currentUser.email}>` : "ผู้แจ้งปัญหา (DevOps)"
+          currentUser ? `${currentUser.name} <${currentUser.email}>` : "ผู้ใช้งาน (แจ้งเรื่อง/สอบถาม)"
         }
       />
 
@@ -946,7 +1273,7 @@ export default function IssueMateAppPage() {
         currentUserEmail={currentUser?.email}
         currentUserName={currentUser?.name}
         projects={visibleProjects}
-        defaultProjectKey={selectedProjectKey}
+        defaultProjectKey={effectiveDefaultProjectKey}
       />
     </div>
   );

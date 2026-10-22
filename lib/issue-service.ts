@@ -25,6 +25,60 @@ export function normalizeProjectKey(raw: string): string {
     .slice(0, 10);
 }
 
+export const VALID_ISSUE_STATUSES: IssueStatus[] = [
+  "open",
+  "reviewing",
+  "ready_to_fix",
+  "fixing",
+  "deployed",
+  "wont_fix",
+];
+
+export const VALID_ISSUE_TYPES: IssueType[] = [
+  "question",
+  "incident",
+  "bug",
+  "deployment",
+  "performance",
+  "security",
+  "feature",
+];
+
+export const VALID_ISSUE_PRIORITIES: IssuePriority[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+];
+
+export function assertValidStatus(status: unknown): IssueStatus {
+  const s = String(status || "") as IssueStatus;
+  if (!VALID_ISSUE_STATUSES.includes(s)) {
+    throw new Error(`สถานะไม่ถูกต้อง: ${String(status)}`);
+  }
+  return s;
+}
+
+export function assertValidType(type: unknown): IssueType {
+  const t = String(type || "") as IssueType;
+  if (!VALID_ISSUE_TYPES.includes(t)) {
+    throw new Error(`ประเภทเรื่องไม่ถูกต้อง: ${String(type)}`);
+  }
+  return t;
+}
+
+export function assertValidPriority(priority: unknown): IssuePriority {
+  const p = String(priority || "") as IssuePriority;
+  if (!VALID_ISSUE_PRIORITIES.includes(p)) {
+    throw new Error(`ระดับความสำคัญไม่ถูกต้อง: ${String(priority)}`);
+  }
+  return p;
+}
+
+function getBangkokDatePrefix(date = new Date()): string {
+  return new Date(date.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+}
+
 const TERMINAL_STATUSES: IssueStatus[] = ["deployed", "wont_fix"];
 
 export async function listProjects(): Promise<
@@ -87,6 +141,9 @@ export async function createProject(input: {
   if (!key || key.length < 2) {
     throw new Error("รหัสโปรเจกต์ (Project Key) ต้องเป็นภาษาอังกฤษหรือตัวเลข 2-10 ตัวอักษร เช่น DEVOPS, API, K8S");
   }
+  if (key === "ALL") {
+    throw new Error('ห้ามใช้รหัสโปรเจกต์ "ALL" เนื่องจากเป็นค่าสงวนของระบบ');
+  }
   const name = input.name.trim();
   if (!name) {
     throw new Error("กรุณาระบุชื่อโปรเจกต์ DevOps / Engineering");
@@ -124,17 +181,30 @@ export async function createProject(input: {
 }
 
 export async function deleteProjectByKey(key: string): Promise<void> {
-  const { projects, issues } = await getCollections();
+  const { db, projects, issues } = await getCollections();
   const normalized = normalizeProjectKey(key);
-  if (!normalized) return;
+  if (!normalized || normalized === "ALL") return;
+  const candidateKeys = await attachmentKeysOf(issues, { projectKey: normalized });
   await Promise.all([
     projects.deleteOne({ key: normalized }),
     issues.deleteMany({ projectKey: normalized }),
+    db.collection("mcp_tokens").deleteMany({ projectKey: normalized }),
+    db.collection<{ allowedProjects?: string[] }>("allowed_users").updateMany(
+      {},
+      {
+        $pull: { allowedProjects: normalized },
+        $unset: { [`projectPermissions.${normalized}`]: "" },
+      }
+    ),
   ]);
+  if (candidateKeys.length > 0) {
+    await removeUnreferencedAttachments(issues, candidateKeys);
+  }
 }
 
 export interface ListIssuesFilter {
-  projectKey?: string;
+  /** string[] = only these projects (permission scope) */
+  projectKey?: string | string[];
   status?: IssueStatusFilter;
   type?: IssueType | "all";
   priority?: IssuePriority | "all";
@@ -155,7 +225,9 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
   const { issues } = await getCollections();
   const query: Filter<IssueRecord> = {};
 
-  if (filter.projectKey && filter.projectKey !== "ALL") {
+  if (Array.isArray(filter.projectKey)) {
+    query.projectKey = { $in: filter.projectKey };
+  } else if (filter.projectKey && filter.projectKey !== "ALL") {
     query.projectKey = filter.projectKey.toUpperCase();
   }
 
@@ -166,7 +238,7 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
       query.status = { $nin: TERMINAL_STATUSES };
     } else if (filter.status === "overdue") {
       query.status = { $nin: TERMINAL_STATUSES };
-      query.dueDate = { $gt: "", $lt: new Date().toISOString() };
+      query.dueDate = { $gt: "", $lt: getBangkokDatePrefix() };
     } else {
       query.status = filter.status;
     }
@@ -207,8 +279,11 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
 
   const sortField = filter.sortBy || "updatedAt";
   const sortOrder = filter.sortDir === "asc" ? 1 : -1;
-  const sortObj: Record<string, 1 | -1> = { [sortField]: sortOrder };
-  if (sortField !== "updatedAt") {
+  const sortObj: Record<string, 1 | -1> =
+    sortField === "code"
+      ? { projectKey: sortOrder, number: sortOrder, updatedAt: -1 }
+      : { [sortField]: sortOrder };
+  if (sortField !== "updatedAt" && sortField !== "code") {
     sortObj.updatedAt = -1;
   }
 
@@ -231,7 +306,7 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
 
 export async function findSimilarIssues(
   queryText: string,
-  projectKey?: string
+  projectKey?: string | string[]
 ): Promise<Array<Pick<IssueRecord, "code" | "title" | "status" | "type" | "priority" | "upvotes">>> {
   const cleaned = (queryText || "").trim();
   if (cleaned.length < 2) return [];
@@ -251,7 +326,9 @@ export async function findSimilarIssues(
   const filter: Filter<IssueRecord> = {
     $or: [{ title: regex }, { description: regex }, { code: regex }],
   };
-  if (projectKey && projectKey !== "ALL") {
+  if (Array.isArray(projectKey)) {
+    filter.projectKey = { $in: projectKey };
+  } else if (projectKey && projectKey !== "ALL") {
     filter.projectKey = projectKey.toUpperCase();
   }
 
@@ -294,6 +371,7 @@ export async function createIssue(input: {
   type?: IssueType;
   priority?: IssuePriority;
   reporter?: string;
+  reporterEmail?: string;
   department?: string;
   assignee?: string;
   labels?: string[];
@@ -312,6 +390,10 @@ export async function createIssue(input: {
   if (!projectKey) throw new Error("กรุณาเลือกโปรเจกต์ DevOps");
   if (!title) throw new Error("กรุณาระบุหัวข้อปัญหาหรือเหตุการณ์");
 
+  const initialStatus: IssueStatus = input.status ? assertValidStatus(input.status) : "open";
+  const issueType: IssueType = input.type ? assertValidType(input.type) : "bug";
+  const issuePriority: IssuePriority = input.priority ? assertValidPriority(input.priority) : "high";
+
   const projectUpdate = await projects.findOneAndUpdate(
     { key: projectKey },
     {
@@ -329,6 +411,7 @@ export async function createIssue(input: {
   const code = `${projectKey}-${issueNumber}`;
   const now = new Date().toISOString();
   const reporter = (input.reporter || "DevOps Engineer").trim();
+  const voterIdentity = (input.reporterEmail || reporter).trim();
 
   const normalizedSubtasks: SubtaskItem[] = Array.isArray(input.subtasks)
     ? input.subtasks.map((st, idx) =>
@@ -337,8 +420,6 @@ export async function createIssue(input: {
           : st
       )
     : [];
-
-  const initialStatus: IssueStatus = input.status || "open";
 
   const timelineEvent: TimelineEvent = {
     id: crypto.randomUUID(),
@@ -355,8 +436,8 @@ export async function createIssue(input: {
     title,
     description: (input.description || "").trim(),
     status: initialStatus,
-    type: input.type || "bug",
-    priority: input.priority || "high",
+    type: issueType,
+    priority: issuePriority,
     reporter,
     department: (input.department || "DevOps & SRE Team").trim(),
     assignee: (input.assignee || "Antigravity").trim() || undefined,
@@ -369,7 +450,7 @@ export async function createIssue(input: {
     relatedCodes: Array.isArray(input.relatedCodes) ? input.relatedCodes : [],
     devopsMeta: input.devopsMeta || {
       environment: "Production",
-      incidentSeverity: input.priority === "critical" ? "SEV-1" : "SEV-2",
+      incidentSeverity: issuePriority === "critical" ? "SEV-1" : "SEV-2",
     },
     reviewMeta: input.reviewMeta || {
       decision: initialStatus === "ready_to_fix" ? "fix" : initialStatus === "wont_fix" ? "wont_fix" : "pending",
@@ -377,7 +458,7 @@ export async function createIssue(input: {
     comments: [],
     timeline: [timelineEvent],
     upvotes: 1,
-    upvotedBy: [reporter],
+    upvotedBy: [voterIdentity],
     aiSummary:
       input.aiSummary ||
       `รอ Antigravity ดึง #${code} ไปวิเคราะห์สาเหตุ แก้ไขโค้ด และ Deploy`,
@@ -424,6 +505,7 @@ export async function updateIssue(
     title?: string;
     description?: string;
     status?: IssueStatus;
+    expectedStatus?: IssueStatus;
     type?: IssueType;
     priority?: IssuePriority;
     assignee?: string;
@@ -450,48 +532,67 @@ export async function updateIssue(
   if (!existing) {
     throw new Error(`ไม่พบ Issue รหัส ${normalized}`);
   }
+  if (patch.expectedStatus && existing.status !== patch.expectedStatus) {
+    throw new Error(
+      `สถานะปัจจุบันของ #${normalized} คือ "${existing.status}" (ต้องการ "${patch.expectedStatus}") กรุณาดึงข้อมูลล่าสุดก่อนดำเนินการ`
+    );
+  }
 
   const now = new Date().toISOString();
   const actor = (patch.actor || "DevOps Team").trim();
-  const newTimeline: TimelineEvent[] = [...(existing.timeline || [])];
+  const pushedTimeline: TimelineEvent[] = [];
+  const unsetFields: Record<string, ""> = {};
+  let removedAttachmentKeys: string[] = [];
 
   const updateFields: Partial<IssueRecord> = {
     updatedAt: now,
   };
 
-  if (patch.title !== undefined && patch.title.trim() !== existing.title) {
-    updateFields.title = patch.title.trim();
-    newTimeline.push({
-      id: crypto.randomUUID(),
-      actor,
-      action: "edited",
-      detail: `แก้ไขหัวข้อเป็น "${updateFields.title}"`,
-      createdAt: now,
-    });
+  if (patch.title !== undefined) {
+    const cleanTitle = patch.title.trim();
+    if (!cleanTitle) {
+      throw new Error("กรุณาระบุหัวข้อปัญหาหรือเหตุการณ์ (ห้ามเว้นว่าง)");
+    }
+    if (cleanTitle !== existing.title) {
+      updateFields.title = cleanTitle;
+      pushedTimeline.push({
+        id: crypto.randomUUID(),
+        actor,
+        action: "edited",
+        detail: `แก้ไขหัวข้อเป็น "${updateFields.title}"`,
+        createdAt: now,
+      });
+    }
   }
 
   if (patch.description !== undefined) {
     updateFields.description = patch.description;
   }
 
-  if (patch.type !== undefined && patch.type !== existing.type) {
-    updateFields.type = patch.type;
+  if (patch.type !== undefined) {
+    const validType = assertValidType(patch.type);
+    if (validType !== existing.type) {
+      updateFields.type = validType;
+    }
   }
 
-  if (patch.priority !== undefined && patch.priority !== existing.priority) {
-    updateFields.priority = patch.priority;
-    newTimeline.push({
-      id: crypto.randomUUID(),
-      actor,
-      action: "priority_changed",
-      detail: `ปรับระดับความสำคัญเป็น ${patch.priority.toUpperCase()}`,
-      createdAt: now,
-    });
+  if (patch.priority !== undefined) {
+    const validPriority = assertValidPriority(patch.priority);
+    if (validPriority !== existing.priority) {
+      updateFields.priority = validPriority;
+      pushedTimeline.push({
+        id: crypto.randomUUID(),
+        actor,
+        action: "priority_changed",
+        detail: `ปรับระดับความสำคัญเป็น ${validPriority.toUpperCase()}`,
+        createdAt: now,
+      });
+    }
   }
 
   if (patch.assignee !== undefined && patch.assignee !== existing.assignee) {
     updateFields.assignee = patch.assignee.trim() || undefined;
-    newTimeline.push({
+    pushedTimeline.push({
       id: crypto.randomUUID(),
       actor,
       action: "assigned",
@@ -519,18 +620,24 @@ export async function updateIssue(
   }
 
   if (patch.devopsMeta !== undefined) {
-    updateFields.devopsMeta = { ...(existing.devopsMeta || {}), ...patch.devopsMeta };
+    const cleanDevopsMeta = Object.fromEntries(
+      Object.entries(patch.devopsMeta).filter(([, v]) => v !== undefined)
+    ) as DevopsMetadata;
+    updateFields.devopsMeta = { ...(existing.devopsMeta || {}), ...cleanDevopsMeta };
   }
 
   if (patch.reviewMeta !== undefined) {
+    const cleanReviewPatch = Object.fromEntries(
+      Object.entries(patch.reviewMeta).filter(([, v]) => v !== undefined)
+    ) as ReviewAndFixMeta;
     const mergedReview: ReviewAndFixMeta = {
       ...(existing.reviewMeta || {}),
-      ...patch.reviewMeta,
+      ...cleanReviewPatch,
     };
     updateFields.reviewMeta = mergedReview;
 
     if (patch.reviewMeta.decision === "fix") {
-      newTimeline.push({
+      pushedTimeline.push({
         id: crypto.randomUUID(),
         actor: patch.reviewMeta.reviewedBy || actor,
         action: "reviewed_fix",
@@ -538,7 +645,7 @@ export async function updateIssue(
         createdAt: now,
       });
     } else if (patch.reviewMeta.decision === "wont_fix") {
-      newTimeline.push({
+      pushedTimeline.push({
         id: crypto.randomUUID(),
         actor: patch.reviewMeta.reviewedBy || actor,
         action: "reviewed_wont_fix",
@@ -551,7 +658,7 @@ export async function updateIssue(
   if (patch.subtasks !== undefined) {
     updateFields.subtasks = patch.subtasks;
     const done = patch.subtasks.filter((s) => s.completed).length;
-    newTimeline.push({
+    pushedTimeline.push({
       id: crypto.randomUUID(),
       actor,
       action: "subtasks_updated",
@@ -588,10 +695,13 @@ export async function updateIssue(
   }
 
   if (patch.attachments !== undefined) {
+    const nextKeys = new Set(patch.attachments.map((a) => a.key).filter(Boolean));
+    removedAttachmentKeys = (existing.attachments || [])
+      .map((a) => a.key)
+      .filter((k): k is string => Boolean(k && !nextKeys.has(k)));
     updateFields.attachments = patch.attachments;
   } else if (patch.addAttachments && patch.addAttachments.length > 0) {
-    updateFields.attachments = [...(existing.attachments || []), ...patch.addAttachments];
-    newTimeline.push({
+    pushedTimeline.push({
       id: crypto.randomUUID(),
       actor,
       action: "attached",
@@ -607,31 +717,60 @@ export async function updateIssue(
     if (removing) currentVoters.delete(voter);
     else currentVoters.add(voter);
     updateFields.upvotedBy = Array.from(currentVoters);
-    updateFields.upvotes = Math.max(0, (existing.upvotes || 0) + (removing ? -1 : 1));
+    updateFields.upvotes = Math.max(0, currentVoters.size);
   }
 
-  if (patch.status !== undefined && patch.status !== existing.status) {
-    updateFields.status = patch.status;
-    if (patch.status === "deployed" || patch.status === "wont_fix") {
-      updateFields.closedAt = now;
-      updateFields.closedBy = actor;
-    } else if (existing.status === "deployed" || existing.status === "wont_fix") {
-      updateFields.closedAt = undefined;
-      updateFields.closedBy = undefined;
+  if (patch.status !== undefined) {
+    const validStatus = assertValidStatus(patch.status);
+    if (validStatus !== existing.status) {
+      updateFields.status = validStatus;
+      if (validStatus === "deployed" || validStatus === "wont_fix") {
+        updateFields.closedAt = now;
+        updateFields.closedBy = actor;
+      } else if (existing.status === "deployed" || existing.status === "wont_fix") {
+        unsetFields.closedAt = "";
+        unsetFields.closedBy = "";
+      }
+
+      pushedTimeline.push({
+        id: crypto.randomUUID(),
+        actor,
+        action: validStatus === "deployed" ? "deployed" : "status_changed",
+        detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[validStatus] || validStatus}`,
+        createdAt: now,
+      });
     }
-
-    newTimeline.push({
-      id: crypto.randomUUID(),
-      actor,
-      action: patch.status === "deployed" ? "deployed" : "status_changed",
-      detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[patch.status] || patch.status}`,
-      createdAt: now,
-    });
   }
 
-  updateFields.timeline = newTimeline;
+  const filterQuery: Filter<IssueRecord> = { code: normalized };
+  if (patch.expectedStatus) {
+    filterQuery.status = patch.expectedStatus;
+  }
 
-  await issues.updateOne({ code: normalized }, { $set: updateFields });
+  const updateDoc: Record<string, unknown> = { $set: updateFields };
+  if (Object.keys(unsetFields).length > 0) {
+    updateDoc.$unset = unsetFields;
+  }
+  const pushOps: Record<string, unknown> = {};
+  if (pushedTimeline.length > 0) {
+    pushOps.timeline = { $each: pushedTimeline };
+  }
+  if (patch.attachments === undefined && patch.addAttachments && patch.addAttachments.length > 0) {
+    pushOps.attachments = { $each: patch.addAttachments };
+  }
+  if (Object.keys(pushOps).length > 0) {
+    updateDoc.$push = pushOps;
+  }
+
+  const updateRes = await issues.updateOne(filterQuery, updateDoc);
+  if (patch.expectedStatus && updateRes.matchedCount === 0) {
+    throw new Error(
+      `สถานะของ #${normalized} ถูกเปลี่ยนไปก่อนหน้านี้แล้ว (ต้องการ "${patch.expectedStatus}")`
+    );
+  }
+  if (removedAttachmentKeys.length > 0) {
+    await removeUnreferencedAttachments(issues, removedAttachmentKeys);
+  }
   const updated = await issues.findOne({ code: normalized });
   if (!updated) throw new Error("Update failed");
   return { ...updated, _id: String(updated._id) };
@@ -658,14 +797,16 @@ export async function addIssueComment(
   const author = (input.author || "DevOps Team").trim();
   const body = (input.body || "").trim();
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
+  const validNextStatus = input.nextStatus ? assertValidStatus(input.nextStatus) : undefined;
 
-  if (!body && attachments.length === 0 && !input.nextStatus) {
+  if (!body && attachments.length === 0 && !validNextStatus) {
     throw new Error("กรุณาพิมพ์ข้อความความคิดเห็นหรือแนบไฟล์");
   }
 
   const now = new Date().toISOString();
-  const nextComments = [...(existing.comments || [])];
-  const nextTimeline = [...(existing.timeline || [])];
+  const pushedComments: CommentRecord[] = [];
+  const pushedTimeline: TimelineEvent[] = [];
+  const unsetFields: Record<string, ""> = {};
 
   if (body || attachments.length > 0) {
     const comment: CommentRecord = {
@@ -675,11 +816,11 @@ export async function addIssueComment(
       body: body || "(แนบไฟล์ประกอบ)",
       attachments,
       reactions: {},
-      isResolution: Boolean(input.isResolution || input.nextStatus === "deployed"),
+      isResolution: Boolean(input.isResolution || validNextStatus === "deployed"),
       createdAt: now,
     };
-    nextComments.push(comment);
-    nextTimeline.push({
+    pushedComments.push(comment);
+    pushedTimeline.push({
       id: crypto.randomUUID(),
       actor: author,
       action: "commented",
@@ -689,46 +830,64 @@ export async function addIssueComment(
   }
 
   const updateFields: Partial<IssueRecord> = {
-    comments: nextComments,
-    timeline: nextTimeline,
     updatedAt: now,
   };
 
-  if (input.nextStatus && input.nextStatus !== existing.status) {
-    updateFields.status = input.nextStatus;
-    if (input.nextStatus === "deployed" || input.nextStatus === "wont_fix") {
+  if (validNextStatus && validNextStatus !== existing.status) {
+    updateFields.status = validNextStatus;
+    if (validNextStatus === "deployed" || validNextStatus === "wont_fix") {
       updateFields.closedAt = now;
       updateFields.closedBy = author;
+    } else if (existing.status === "deployed" || existing.status === "wont_fix") {
+      unsetFields.closedAt = "";
+      unsetFields.closedBy = "";
     }
-    nextTimeline.push({
+    pushedTimeline.push({
       id: crypto.randomUUID(),
       actor: author,
       action: "status_changed",
-      detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[input.nextStatus]}`,
+      detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[validNextStatus]}`,
       createdAt: now,
     });
   }
 
-  await issues.updateOne({ code: normalized }, { $set: updateFields });
+  const updateDoc: Record<string, unknown> = { $set: updateFields };
+  if (Object.keys(unsetFields).length > 0) {
+    updateDoc.$unset = unsetFields;
+  }
+  const pushOps: Record<string, unknown> = {};
+  if (pushedComments.length > 0) {
+    pushOps.comments = { $each: pushedComments };
+  }
+  if (pushedTimeline.length > 0) {
+    pushOps.timeline = { $each: pushedTimeline };
+  }
+  if (Object.keys(pushOps).length > 0) {
+    updateDoc.$push = pushOps;
+  }
+
+  await issues.updateOne({ code: normalized }, updateDoc);
   const updated = await issues.findOne({ code: normalized });
   if (!updated) throw new Error("Failed to add comment");
   return { ...updated, _id: String(updated._id) };
 }
 
-export async function getMonitorStats(projectKey?: string): Promise<MonitorStats> {
+export async function getMonitorStats(projectKey?: string | string[]): Promise<MonitorStats> {
   const { projects, issues } = await getCollections();
   const query: Filter<IssueRecord> = {};
-  if (projectKey && projectKey !== "ALL") {
+  if (Array.isArray(projectKey)) {
+    query.projectKey = { $in: projectKey };
+  } else if (projectKey && projectKey !== "ALL") {
     query.projectKey = projectKey.toUpperCase();
   }
 
   const [allProjects, allIssues] = await Promise.all([
-    projects.find({}).sort({ createdAt: 1 }).toArray(),
+    projects.find(Array.isArray(projectKey) ? { key: { $in: projectKey } } : {}).sort({ createdAt: 1 }).toArray(),
     issues.find(query).sort({ updatedAt: -1 }).toArray(),
   ]);
 
   const now = new Date();
-  const todayPrefix = now.toISOString().slice(0, 10);
+  const todayPrefix = getBangkokDatePrefix(now);
 
   let openIssues = 0;
   let reviewingIssues = 0;
@@ -746,6 +905,7 @@ export async function getMonitorStats(projectKey?: string): Promise<MonitorStats
   let activeIncidentsCount = 0;
 
   const byType: Record<IssueType, number> = {
+    question: 0,
     incident: 0,
     bug: 0,
     deployment: 0,
@@ -784,7 +944,8 @@ export async function getMonitorStats(projectKey?: string): Promise<MonitorStats
   >();
 
   for (const p of allProjects) {
-    if (projectKey && projectKey !== "ALL" && p.key !== projectKey) continue;
+    // Array scopes are already filtered by the projects query above
+    if (typeof projectKey === "string" && projectKey !== "ALL" && p.key !== projectKey.toUpperCase()) continue;
     projectStatMap.set(p.key, {
       key: p.key,
       name: p.name,
@@ -829,18 +990,19 @@ export async function getMonitorStats(projectKey?: string): Promise<MonitorStats
     }
 
     if (!isTerminal && issue.dueDate) {
-      const due = new Date(issue.dueDate);
-      if (!isNaN(due.getTime()) && due.getTime() < now.getTime()) {
+      const duePrefix = issue.dueDate.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(duePrefix) && duePrefix < todayPrefix) {
         overdueCount++;
       }
     }
 
     if (isTerminal && issue.closedAt) {
-      if (issue.closedAt.startsWith(todayPrefix)) {
+      const closedDate = new Date(issue.closedAt);
+      if (!isNaN(closedDate.getTime()) && getBangkokDatePrefix(closedDate) === todayPrefix) {
         resolvedTodayCount++;
       }
       const startMs = new Date(issue.createdAt).getTime();
-      const endMs = new Date(issue.closedAt).getTime();
+      const endMs = closedDate.getTime();
       if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
         totalResolutionMs += endMs - startMs;
         resolvedWithDurationCount++;

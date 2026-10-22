@@ -11,10 +11,19 @@ import {
   updateIssue,
   addIssueComment,
   getMonitorStats,
+  normalizeProjectKey,
 } from "./issue-service";
-import { uploadBufferToMinio } from "./minio";
+import { MAX_FILES_PER_REQUEST, uploadBufferToMinio } from "./minio";
 import type { AttachmentItem, SubtaskItem } from "./types";
 import { formatTokenActorIdentity, type McpTokenPublic } from "./mcp-tokens";
+import {
+  canUserAccessProject,
+  projectScopeFor,
+  validateUserProjectAction,
+  type AuthUser,
+} from "./auth";
+
+type IssueAction = "view" | "comment" | "change_status";
 
 function cleanIssueCode(raw: string): string {
   return raw.trim().replace(/^#/, "").toUpperCase();
@@ -29,9 +38,13 @@ const InlineFileSchema = z.object({
 
 async function uploadInlineFiles(
   files: Array<z.infer<typeof InlineFileSchema>> | undefined,
-  uploadedBy: string
+  uploadedBy: string,
+  uploaderEmail?: string
 ): Promise<AttachmentItem[]> {
   if (!files || files.length === 0) return [];
+  if (files.length > MAX_FILES_PER_REQUEST) {
+    throw new Error(`แนบไฟล์ผ่าน MCP ได้ไม่เกิน ${MAX_FILES_PER_REQUEST} ไฟล์ต่อครั้ง`);
+  }
   const uploaded: AttachmentItem[] = [];
   for (const f of files) {
     if (!f.filename) continue;
@@ -45,6 +58,7 @@ async function uploadInlineFiles(
       filename: f.filename,
       mimeType: mime,
       uploadedBy,
+      uploaderEmail,
     });
     uploaded.push(item);
   }
@@ -53,7 +67,9 @@ async function uploadInlineFiles(
 
 export function createIssueMateMcpServer(
   tokenUser?: McpTokenPublic,
-  boundProjectKey?: string
+  boundProjectKey?: string,
+  /** Token owner from verifyMcpRequestToken; undefined only for the trusted local stdio server */
+  owner?: AuthUser
 ): McpServer {
   const server = new McpServer({
     name: "issuemate-devops-mcp-server",
@@ -62,12 +78,14 @@ export function createIssueMateMcpServer(
 
   const normalizedBoundProject =
     boundProjectKey && boundProjectKey !== "ALL"
-      ? boundProjectKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+      ? normalizeProjectKey(boundProjectKey)
       : undefined;
 
   function resolveScopedProjectKey(explicitProjectKey?: string): string | undefined {
     const cleanExplicit = explicitProjectKey
-      ? explicitProjectKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+      ? explicitProjectKey.trim().toUpperCase() === "ALL"
+        ? "ALL"
+        : normalizeProjectKey(explicitProjectKey)
       : undefined;
 
     if (normalizedBoundProject) {
@@ -86,7 +104,35 @@ export function createIssueMateMcpServer(
     return cleanExplicit && cleanExplicit !== "ALL" ? cleanExplicit : undefined;
   }
 
-  function assertIssueBelongsToProject(issueCode: string, explicitProjectKey?: string): string {
+  function assertNotReviewerOnly(toolName: string) {
+    if (tokenUser?.agentRole === "claude_reviewer") {
+      throw new Error(
+        `Token นี้มีบทบาทเป็น "claude_reviewer" (สำหรับรีวิวเท่านั้น) ไม่สามารถเรียกใช้ ${toolName} เพื่อแก้ไขหรือ Deploy ได้`
+      );
+    }
+  }
+
+  // Same per-project rules as the web API, checked against the token owner's current rights
+  function requireAccess(projectKey: string, action: IssueAction | "create_issue", issueType?: string) {
+    if (!owner) return;
+    const check = validateUserProjectAction(owner, projectKey, action, issueType);
+    if (!check.allowed) throw new Error(check.reason || "ไม่มีสิทธิ์ทำรายการนี้");
+  }
+
+  // List/summary scope limited to projects the owner may view
+  function listScope(explicitProjectKey?: string): string | string[] | undefined {
+    const target = resolveScopedProjectKey(explicitProjectKey);
+    if (!owner) return target;
+    const scope = projectScopeFor(owner, target);
+    if (scope === null) throw new Error(`ไม่มีสิทธิ์เข้าถึงโปรเจกต์ [${target}]`);
+    return scope;
+  }
+
+  async function assertIssueBelongsToProject(
+    issueCode: string,
+    explicitProjectKey: string | undefined,
+    action: IssueAction
+  ): Promise<string> {
     const code = cleanIssueCode(issueCode);
     const issueProjPrefix = code.split("-")[0] || "";
     const targetProj = resolveScopedProjectKey(explicitProjectKey);
@@ -94,6 +140,10 @@ export function createIssueMateMcpServer(
       throw new Error(
         `ป้องกันการทำรายการผิดโปรเจกต์: Issue #${code} อยู่ในโปรเจกต์ [${issueProjPrefix}] แต่ MCP Session นี้ระบุโปรเจกต์ [${targetProj}] เท่านั้น`
       );
+    }
+    if (owner) {
+      const issue = await getIssueByCode(code);
+      if (issue) requireAccess(issue.projectKey, action, issue.type);
     }
     return code;
   }
@@ -112,11 +162,11 @@ export function createIssueMateMcpServer(
       const targetProj = resolveScopedProjectKey(args.projectKey);
       const [projects, stats] = await Promise.all([
         listProjects(),
-        getMonitorStats(targetProj || "ALL"),
+        getMonitorStats(listScope(args.projectKey) || "ALL"),
       ]);
-      const filteredProjects = targetProj
-        ? projects.filter((p) => p.key === targetProj)
-        : projects;
+      const filteredProjects = projects.filter(
+        (p) => (!targetProj || p.key === targetProj) && (!owner || canUserAccessProject(owner, p.key))
+      );
       const contextPayload = {
         boundProjectKey: targetProj || "ALL",
         authenticatedUser: tokenUser
@@ -140,7 +190,7 @@ export function createIssueMateMcpServer(
           ],
           validValues: {
             status: ["open", "reviewing", "ready_to_fix", "fixing", "deployed", "wont_fix"],
-            type: ["incident", "bug", "deployment", "performance", "security", "feature"],
+            type: ["question", "incident", "bug", "deployment", "performance", "security", "feature"],
             priority: ["critical", "high", "medium", "low"],
           },
         },
@@ -207,7 +257,7 @@ export function createIssueMateMcpServer(
         .describe("รายการ Checklist งานย่อยสำหรับ Antigravity (ถ้าต้องการตั้งใหม่)"),
     },
     async (args) => {
-      const code = assertIssueBelongsToProject(args.code, args.projectKey);
+      const code = await assertIssueBelongsToProject(args.code, args.projectKey, "change_status");
       const reviewer = formatTokenActorIdentity(
         tokenUser,
         args.reviewedBy || "Antigravity"
@@ -260,7 +310,9 @@ export function createIssueMateMcpServer(
             ? `### ✅ ผลรีวิวจาก Antigravity: **สั่งแก้ (สถานะ: รอแก้ \`ready_to_fix\`)**\n- **สาเหตุ/เหตุผล**: ${args.reviewReason}\n- **คำสั่งในการแก้ (สำหรับ Antigravity)**:\n\`\`\`text\n${args.fixInstructions || "-"}\n\`\`\`\n${
                 args.deployCommand ? `- **คำสั่ง Deploy**: \`${args.deployCommand}\`` : ""
               }`
-            : `### ⛔ ผลรีวิวจาก Antigravity: **ไม่แก้ (สถานะ: \`wont_fix\`)**\n- **เหตุผลที่ไม่แก้**: ${args.reviewReason}`,
+            : args.decision === "wont_fix"
+            ? `### ⛔ ผลรีวิวจาก Antigravity: **ไม่แก้ (สถานะ: \`wont_fix\`)**\n- **เหตุผลที่ไม่แก้**: ${args.reviewReason}`
+            : `### 🔍 Antigravity กำลังรีวิว (สถานะ: \`reviewing\`)\n- **บันทึกการวิเคราะห์เบื้องต้น**: ${args.reviewReason}`,
         isResolution: args.decision === "wont_fix",
       });
 
@@ -299,10 +351,12 @@ export function createIssueMateMcpServer(
       planNote: z.string().optional().describe("แผนการแก้ไขและ Deploy เบื้องต้น"),
     },
     async ({ projectKey, code, agentName, planNote }) => {
-      const normalized = assertIssueBelongsToProject(code, projectKey);
+      assertNotReviewerOnly("claim_for_fix");
+      const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
       const resolvedAgent = formatTokenActorIdentity(tokenUser, agentName);
       const updated = await updateIssue(normalized, {
         status: "fixing",
+        expectedStatus: "ready_to_fix",
         assignee: resolvedAgent,
         actor: resolvedAgent,
         reviewMeta: {
@@ -339,7 +393,8 @@ export function createIssueMateMcpServer(
       completeAllSubtasks: z.boolean().optional().default(true),
     },
     async ({ projectKey, code, agentName, deployResult, completeAllSubtasks }) => {
-      const normalized = assertIssueBelongsToProject(code, projectKey);
+      assertNotReviewerOnly("mark_deployed");
+      const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
       const resolvedAgent = formatTokenActorIdentity(tokenUser, agentName);
       const existing = await getIssueByCode(normalized);
       if (!existing) {
@@ -355,6 +410,7 @@ export function createIssueMateMcpServer(
 
       const updated = await updateIssue(normalized, {
         status: "deployed",
+        expectedStatus: "fixing",
         assignee: resolvedAgent,
         subtasks: nextSubtasks,
         reviewMeta: {
@@ -385,7 +441,11 @@ export function createIssueMateMcpServer(
     "ดึงรายการโปรเจกต์ DevOps ทั้งหมดในระบบ พร้อมจำนวน Issue ที่รอรีวิวและรอแก้",
     {},
     async () => {
-      const projects = await listProjects();
+      const projects = (await listProjects()).filter(
+        (p) =>
+          (!normalizedBoundProject || p.key === normalizedBoundProject) &&
+          (!owner || canUserAccessProject(owner, p.key))
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(projects, null, 2) }],
       };
@@ -426,6 +486,9 @@ export function createIssueMateMcpServer(
         ),
     },
     async (args) => {
+      if (owner && !owner.isAdmin) {
+        throw new Error("สร้างโปรเจกต์ได้เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น");
+      }
       const cleanKey = args.key
         .trim()
         .toUpperCase()
@@ -554,17 +617,16 @@ export function createIssueMateMcpServer(
         ])
         .optional(),
       type: z
-        .enum(["all", "incident", "bug", "deployment", "performance", "security", "feature"])
+        .enum(["all", "question", "incident", "bug", "deployment", "performance", "security", "feature"])
         .optional(),
       priority: z.enum(["all", "critical", "high", "medium", "low"]).optional(),
       search: z.string().optional(),
       limit: z.number().optional(),
     },
     async (args) => {
-      const targetProj = resolveScopedProjectKey(args.projectKey);
       const issues = await listIssues({
         ...args,
-        projectKey: targetProj,
+        projectKey: listScope(args.projectKey),
       });
       return {
         content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
@@ -584,7 +646,7 @@ export function createIssueMateMcpServer(
       code: z.string().describe("รหัส Issue เช่น SMLAIACC-1"),
     },
     async ({ projectKey, code }) => {
-      const normalizedCode = assertIssueBelongsToProject(code, projectKey);
+      const normalizedCode = await assertIssueBelongsToProject(code, projectKey, "view");
       const issue = await getIssueByCode(normalizedCode);
       if (!issue) {
         return {
@@ -607,8 +669,7 @@ export function createIssueMateMcpServer(
       projectKey: z.string().optional().describe("รหัสโปรเจกต์ เช่น SMLAIACC"),
     },
     async ({ query, projectKey }) => {
-      const targetProj = resolveScopedProjectKey(projectKey);
-      const similar = await findSimilarIssues(query, targetProj);
+      const similar = await findSimilarIssues(query, listScope(projectKey));
       return {
         content: [{ type: "text", text: JSON.stringify({ count: similar.length, similar }, null, 2) }],
       };
@@ -632,7 +693,7 @@ export function createIssueMateMcpServer(
         .optional()
         .default("open"),
       type: z
-        .enum(["incident", "bug", "deployment", "performance", "security", "feature"])
+        .enum(["question", "incident", "bug", "deployment", "performance", "security", "feature"])
         .optional()
         .default("bug"),
       priority: z.enum(["critical", "high", "medium", "low"]).optional().default("high"),
@@ -691,11 +752,19 @@ export function createIssueMateMcpServer(
         };
       }
 
+      requireAccess(normalizedKey, "create_issue", args.type);
+      // Workflow fields (status/devopsMeta/reviewMeta) need developer/project_admin, like the web API
+      const canManage =
+        !owner || validateUserProjectAction(owner, normalizedKey, "change_status").allowed;
       const resolvedReporter = formatTokenActorIdentity(
         tokenUser,
         args.reporter || "AI DevOps Agent"
       );
-      const uploadedFiles = await uploadInlineFiles(args.files, resolvedReporter);
+      const uploadedFiles = await uploadInlineFiles(
+        args.files,
+        resolvedReporter,
+        tokenUser?.ownerEmail
+      );
       const subtaskItems: SubtaskItem[] = (args.subtasks || []).map((t) => ({
         id: crypto.randomUUID(),
         title: t.trim(),
@@ -706,18 +775,19 @@ export function createIssueMateMcpServer(
         projectKey: normalizedKey,
         title: args.title,
         description: args.description,
-        status: args.status,
+        status: canManage ? args.status : undefined,
         type: args.type,
         priority: args.priority,
         reporter: resolvedReporter,
+        reporterEmail: tokenUser?.ownerEmail,
         department: args.department,
-        assignee: args.assignee,
+        assignee: canManage ? args.assignee : undefined,
         labels: args.labels,
         subtasks: subtaskItems,
         attachments: uploadedFiles,
-        devopsMeta: args.devopsMeta,
-        reviewMeta: args.reviewMeta,
-        aiSummary: args.aiSummary,
+        devopsMeta: canManage ? args.devopsMeta : undefined,
+        reviewMeta: canManage ? args.reviewMeta : undefined,
+        aiSummary: canManage ? args.aiSummary : undefined,
       });
 
       return {
@@ -749,7 +819,9 @@ export function createIssueMateMcpServer(
       commentBody: z.string().optional(),
     },
     async ({ projectKey, code, agentName, aiSummary, nextStatus, fixInstructions, subtasksToAdd, commentBody }) => {
-      const normalized = assertIssueBelongsToProject(code, projectKey);
+      assertNotReviewerOnly("claim_and_plan_issue");
+      const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
+      const resolvedAgent = formatTokenActorIdentity(tokenUser, agentName);
       const existing = await getIssueByCode(normalized);
       if (!existing) {
         return {
@@ -766,7 +838,7 @@ export function createIssueMateMcpServer(
               id: crypto.randomUUID(),
               title: title.trim(),
               completed: false,
-              assignee: agentName,
+              assignee: resolvedAgent,
             });
           }
         }
@@ -774,21 +846,20 @@ export function createIssueMateMcpServer(
 
       await updateIssue(normalized, {
         status: nextStatus,
-        assignee: agentName,
+        assignee: resolvedAgent,
         aiSummary,
         subtasks: nextSubtasks,
         reviewMeta: fixInstructions
           ? {
-              ...(existing.reviewMeta || {}),
               fixInstructions,
             }
           : undefined,
-        actor: agentName,
+        actor: resolvedAgent,
       });
 
       if (commentBody && commentBody.trim()) {
         await addIssueComment(normalized, {
-          author: agentName,
+          author: resolvedAgent,
           role: "Antigravity Agent",
           body: commentBody.trim(),
         });
@@ -820,7 +891,22 @@ export function createIssueMateMcpServer(
       files: z.array(InlineFileSchema).optional(),
     },
     async (args) => {
-      const normalized = assertIssueBelongsToProject(args.code, args.projectKey);
+      const changesWork = Boolean(
+        args.newStatus || args.deployResult || args.completeSubtaskNumbers?.length
+      );
+      const hasMessageOrFiles = Boolean(
+        args.message.trim() || (args.files && args.files.length > 0)
+      );
+      if (!hasMessageOrFiles && !changesWork && !args.reactionEmoji) {
+        throw new Error("กรุณาระบุข้อความ (message) แนบไฟล์ หรือระบุการเปลี่ยนแปลงสถานะ");
+      }
+      const normalized = await assertIssueBelongsToProject(
+        args.code,
+        args.projectKey,
+        changesWork ? "change_status" : "comment"
+      );
+      const agentName = formatTokenActorIdentity(tokenUser, args.agentName);
+      const reactionUser = tokenUser?.ownerEmail || agentName;
       const existing = await getIssueByCode(normalized);
       if (!existing) {
         return {
@@ -829,7 +915,11 @@ export function createIssueMateMcpServer(
         };
       }
 
-      const uploadedFiles = await uploadInlineFiles(args.files, args.agentName);
+      const uploadedFiles = await uploadInlineFiles(
+        args.files,
+        agentName,
+        tokenUser?.ownerEmail
+      );
 
       let updatedSubtasks: SubtaskItem[] | undefined;
       if (args.completeSubtaskNumbers && args.completeSubtaskNumbers.length > 0 && existing.subtasks) {
@@ -839,32 +929,34 @@ export function createIssueMateMcpServer(
         );
       }
 
+      let updated = existing;
       if (updatedSubtasks || args.reactionEmoji || args.newStatus || args.deployResult) {
-        await updateIssue(normalized, {
+        updated = await updateIssue(normalized, {
           status: args.newStatus,
           subtasks: updatedSubtasks,
           reviewMeta: args.deployResult
             ? {
-                ...(existing.reviewMeta || {}),
-                fixedBy: args.agentName,
+                fixedBy: agentName,
                 fixedAt: new Date().toISOString(),
                 deployResult: args.deployResult,
               }
             : undefined,
           toggleReaction: args.reactionEmoji
-            ? { emoji: args.reactionEmoji, user: args.agentName }
+            ? { emoji: args.reactionEmoji, user: reactionUser }
             : undefined,
-          actor: args.agentName,
+          actor: agentName,
         });
       }
 
-      const updated = await addIssueComment(normalized, {
-        author: args.agentName,
-        role: args.role,
-        body: args.message,
-        attachments: uploadedFiles,
-        isResolution: args.newStatus === "deployed" || args.newStatus === "wont_fix",
-      });
+      if (hasMessageOrFiles) {
+        updated = await addIssueComment(normalized, {
+          author: agentName,
+          role: "Antigravity Agent",
+          body: args.message,
+          attachments: uploadedFiles,
+          isResolution: args.newStatus === "deployed" || args.newStatus === "wont_fix",
+        });
+      }
 
       return {
         content: [
@@ -905,8 +997,11 @@ export function createIssueMateMcpServer(
       actor: z.string().optional().default("Antigravity"),
     },
     async ({ projectKey, code, ...patch }) => {
-      const normalized = assertIssueBelongsToProject(code, projectKey);
-      const updated = await updateIssue(normalized, patch);
+      const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
+      const updated = await updateIssue(normalized, {
+        ...patch,
+        actor: formatTokenActorIdentity(tokenUser, patch.actor),
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
       };
@@ -921,8 +1016,7 @@ export function createIssueMateMcpServer(
       projectKey: z.string().optional().describe("รหัสโปรเจกต์ เช่น SMLAIACC"),
     },
     async ({ projectKey }) => {
-      const targetProj = resolveScopedProjectKey(projectKey);
-      const stats = await getMonitorStats(targetProj);
+      const stats = await getMonitorStats(listScope(projectKey));
       return {
         content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
       };

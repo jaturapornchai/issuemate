@@ -27,6 +27,8 @@ export function CommandPaletteModal({
   onOpenCreateIssue,
   onOpenCreateProject,
   onOpenMcpGuide,
+  canCreateIssue = true,
+  isAdmin = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,6 +40,8 @@ export function CommandPaletteModal({
   onOpenCreateIssue: () => void;
   onOpenCreateProject: () => void;
   onOpenMcpGuide: () => void;
+  canCreateIssue?: boolean;
+  isAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
 
@@ -61,16 +65,20 @@ export function CommandPaletteModal({
     .slice(0, 6);
 
   const quickActions = [
-    {
-      id: "new-issue",
-      label: "แจ้งปัญหาใหม่ / ส่งความต้องการจากทีม (Create Issue)",
-      icon: Plus,
-      color: "text-emerald-400",
-      run: () => {
-        onClose();
-        onOpenCreateIssue();
-      },
-    },
+    ...(canCreateIssue
+      ? [
+          {
+            id: "new-issue",
+            label: "แจ้งปัญหาใหม่ / พูดด้วยเสียง / ส่งความต้องการจากทีม (Create Issue)",
+            icon: Plus,
+            color: "text-emerald-400",
+            run: () => {
+              onClose();
+              onOpenCreateIssue();
+            },
+          },
+        ]
+      : []),
     {
       id: "view-monitor",
       label: "เปิดหน้าจอ Live Monitor ติดตามสถานะและ SLA",
@@ -111,16 +119,20 @@ export function CommandPaletteModal({
         onClose();
       },
     },
-    {
-      id: "new-project",
-      label: "สร้างโปรเจกต์ใหม่ (New Project Workspace)",
-      icon: FolderPlus,
-      color: "text-cyan-400",
-      run: () => {
-        onClose();
-        onOpenCreateProject();
-      },
-    },
+    ...(isAdmin
+      ? [
+          {
+            id: "new-project",
+            label: "สร้างโปรเจกต์ใหม่ (New Project Workspace)",
+            icon: FolderPlus,
+            color: "text-cyan-400",
+            run: () => {
+              onClose();
+              onOpenCreateProject();
+            },
+          },
+        ]
+      : []),
     {
       id: "open-mcp",
       label: "ตั้งค่าและทดสอบ AI MCP Server (14 Tools)",
