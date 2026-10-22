@@ -652,7 +652,12 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       );
       await page.getByTestId("close-mcp-modal-btn").click();
 
-      // 2.5 Verify 100% table width with zero horizontal overflow
+      // 2.5 Verify Created Date/Time column is visible, sorted descending by default, and 100% table width with zero horizontal overflow
+      const createdAtHeader = page.locator('th[data-col-key="createdAt"]');
+      await expect(createdAtHeader).toContainText("วันที่เวลาสร้าง");
+      await expect(createdAtHeader).toHaveAttribute("aria-sort", "descending");
+      await expect(page.getByTestId(`issue-created-at-${testProjectKey}-101`)).toContainText(":");
+
       for (const width of [1440, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         const m = await page.getByTestId("issues-table").evaluate((t) => {

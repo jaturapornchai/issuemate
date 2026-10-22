@@ -278,11 +278,13 @@ export function formatThaiDateTime(iso?: string): string {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleDateString("th-TH", {
+      timeZone: "Asia/Bangkok",
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     });
   } catch {
     return iso;

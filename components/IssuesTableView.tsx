@@ -31,18 +31,19 @@ import {
 const COLUMNS: Array<
   ResizableColumnDef & { label: string; sortField: string; align?: "left" | "center" }
 > = [
-  { key: "code", label: "รหัสเรื่อง", sortField: "code", defaultWidth: 11 },
-  { key: "status", label: "สถานะ", sortField: "status", defaultWidth: 12 },
+  { key: "code", label: "รหัสเรื่อง", sortField: "code", defaultWidth: 10 },
+  { key: "createdAt", label: "วันที่เวลาสร้าง", sortField: "createdAt", defaultWidth: 12 },
+  { key: "status", label: "สถานะ", sortField: "status", defaultWidth: 11 },
   {
     key: "title",
     label: "หัวข้อปัญหา / คำถามที่สอบถาม / ความคืบหน้าการแก้ไข",
     sortField: "title",
-    defaultWidth: 34,
+    defaultWidth: 30,
   },
-  { key: "type", label: "หมวดหมู่", sortField: "type", defaultWidth: 12 },
-  { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 9 },
-  { key: "assignee", label: "ผู้ดูแล / ผู้ตอบ", sortField: "assignee", defaultWidth: 11 },
-  { key: "meta", label: "ไฟล์ / โหวต", sortField: "upvotes", defaultWidth: 11, align: "center" },
+  { key: "type", label: "หมวดหมู่", sortField: "type", defaultWidth: 11 },
+  { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 8 },
+  { key: "assignee", label: "ผู้ดูแล / ผู้ตอบ", sortField: "assignee", defaultWidth: 9 },
+  { key: "meta", label: "ไฟล์ / โหวต", sortField: "upvotes", defaultWidth: 9, align: "center" },
 ];
 
 const SEVERITY_CLASS: Record<string, string> = {
@@ -106,8 +107,11 @@ function IssueContextLine({ issue }: { issue: IssueRecord }) {
           <span className="truncate">{rev.reviewReason}</span>
         </span>
       )}
+      <span className="shrink-0 font-mono text-[11px] text-slate-300 tabular-nums">
+        {formatThaiDateTime(issue.createdAt)}
+      </span>
       <span className="truncate">
-        แจ้งโดย {issue.reporter} • {formatThaiDateTime(issue.updatedAt)}
+        • แจ้งโดย {issue.reporter}
       </span>
     </div>
   );
@@ -116,7 +120,7 @@ function IssueContextLine({ issue }: { issue: IssueRecord }) {
 export function IssuesTableView({
   issues,
   selectedCode,
-  sortBy = "updatedAt",
+  sortBy = "createdAt",
   sortDir = "desc",
   onSelectIssue,
   onSort,
@@ -142,13 +146,13 @@ export function IssuesTableView({
     resetWidths,
     handleHeaderClick,
   } = useResizableColumns({
-    storageKey: "issuemate_devops_table_v4",
+    storageKey: "issuemate_devops_table_v5",
     columns: COLUMNS,
     onHeaderRefresh: (colKey) => {
       if (onHeaderRefresh) {
         onHeaderRefresh(colKey);
       } else if (onSort) {
-        onSort(COLUMNS.find((c) => c.key === colKey)?.sortField || "updatedAt");
+        onSort(COLUMNS.find((c) => c.key === colKey)?.sortField || "createdAt");
       }
     },
   });
@@ -248,6 +252,22 @@ export function IssuesTableView({
                   >
                     <td style={getColStyle("code")} className="overflow-hidden px-2.5 py-2 align-middle">
                       <CopyCodeButton code={issue.code} className="h-6 px-1.5 text-xs" />
+                    </td>
+                    <td
+                      style={getColStyle("createdAt")}
+                      data-testid={`issue-created-at-${issue.code}`}
+                      className="overflow-hidden px-2.5 py-2 align-middle"
+                    >
+                      <div
+                        className="truncate font-mono text-[11px] font-medium text-slate-200 tabular-nums"
+                        title={`สร้างเมื่อ: ${formatThaiDateTime(issue.createdAt)}${
+                          issue.updatedAt && issue.updatedAt !== issue.createdAt
+                            ? ` • อัปเดตล่าสุด: ${formatThaiDateTime(issue.updatedAt)}`
+                            : ""
+                        }`}
+                      >
+                        {formatThaiDateTime(issue.createdAt)}
+                      </div>
                     </td>
                     <td style={getColStyle("status")} className="overflow-hidden px-2.5 py-2 align-middle">
                       <StatusBadge status={issue.status} compact />

@@ -96,7 +96,7 @@ export default function IssueMateAppPage() {
   const [typeFilter, setTypeFilter] = useState<IssueType | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<IssuePriority | "all">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [sortBy, setSortBy] = useState<string>("updatedAt");
+  const [sortBy, setSortBy] = useState<string>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const [isLoading, setIsLoading] = useState<boolean>(true);

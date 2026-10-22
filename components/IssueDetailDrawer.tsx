@@ -34,6 +34,7 @@ import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
   TYPE_CONFIG,
+  formatThaiDateTime,
 } from "./ui/Badges";
 import { FileUploadZone, AttachmentGallery } from "./ui/FileAttachmentZone";
 import {
@@ -516,12 +517,22 @@ export function IssueDetailDrawer({
               </span>
               <span>•</span>
               <span>
-                วันที่แจ้ง:{" "}
-                {new Date(issue.createdAt).toLocaleString("th-TH", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                })}
+                วันที่เวลาสร้าง:{" "}
+                <strong className="font-mono text-slate-200 tabular-nums">
+                  {formatThaiDateTime(issue.createdAt)}
+                </strong>
               </span>
+              {issue.updatedAt && issue.updatedAt !== issue.createdAt && (
+                <>
+                  <span>•</span>
+                  <span>
+                    อัปเดตล่าสุด:{" "}
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {formatThaiDateTime(issue.updatedAt)}
+                    </span>
+                  </span>
+                </>
+              )}
               <div className="ml-auto flex items-center gap-2">
                 <select
                   value={issue.type}

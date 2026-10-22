@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { IssueRecord, IssueStatus } from "@/lib/types";
-import { PriorityBadge, TypeBadge, STATUS_CONFIG } from "./ui/Badges";
+import { PriorityBadge, TypeBadge, STATUS_CONFIG, formatThaiDateTime } from "./ui/Badges";
 
 const COLUMNS: Array<{ status: IssueStatus; nextStatus?: IssueStatus; nextLabel?: string }> = [
   { status: "open", nextStatus: "reviewing", nextLabel: "Antigravity เริ่มรีวิว" },
@@ -86,6 +86,10 @@ export function KanbanBoardView({
                       <p className="mt-2 line-clamp-2 text-xs font-semibold text-white group-hover:text-emerald-300">
                         {issue.title}
                       </p>
+
+                      <div className="mt-1 font-mono text-[10px] text-slate-400 tabular-nums">
+                        สร้าง: {formatThaiDateTime(issue.createdAt)}
+                      </div>
 
                       {issue.devopsMeta?.serviceName && (
                         <div className="mt-1.5 flex items-center gap-1 text-[10px] font-mono text-rose-300 truncate">

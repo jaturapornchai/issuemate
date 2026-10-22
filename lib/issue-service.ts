@@ -277,15 +277,14 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
     ];
   }
 
-  const sortField = filter.sortBy || "updatedAt";
+  const sortField = filter.sortBy || "createdAt";
   const sortOrder = filter.sortDir === "asc" ? 1 : -1;
   const sortObj: Record<string, 1 | -1> =
     sortField === "code"
-      ? { projectKey: sortOrder, number: sortOrder, updatedAt: -1 }
-      : { [sortField]: sortOrder };
-  if (sortField !== "updatedAt" && sortField !== "code") {
-    sortObj.updatedAt = -1;
-  }
+      ? { projectKey: sortOrder, number: sortOrder, createdAt: -1 }
+      : sortField === "createdAt"
+      ? { createdAt: sortOrder, number: sortOrder }
+      : { [sortField]: sortOrder, createdAt: -1, number: -1 };
 
   const limit = Math.min(filter.limit || 200, 500);
   const rankOrder = ENUM_SORT_ORDER[sortField];
@@ -294,7 +293,7 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
         .aggregate<IssueRecord>([
           { $match: query },
           { $addFields: { _sortRank: { $indexOfArray: [rankOrder, "$" + sortField] } } },
-          { $sort: { _sortRank: sortOrder, updatedAt: -1 } },
+          { $sort: { _sortRank: sortOrder, createdAt: -1, number: -1 } },
           { $limit: limit },
           { $project: { _sortRank: 0 } },
         ])
