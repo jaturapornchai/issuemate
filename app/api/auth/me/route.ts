@@ -19,6 +19,7 @@ import {
   type AllowedUserRecord,
 } from "@/lib/auth";
 import { listProjects } from "@/lib/issue-service";
+import { APP_VERSION, DEPLOYED_AT_TH, DEPLOYED_AT_ISO } from "@/lib/version";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,9 @@ export async function GET(req: Request) {
   const isAdmin = Boolean(user?.isAdmin);
 
   const loginInfo = {
+    version: APP_VERSION,
+    deployedAt: DEPLOYED_AT_TH,
+    deployedAtIso: DEPLOYED_AT_ISO,
     superAdminMasked: maskEmail(superAdminEmail),
     oauthConfigured: Boolean(cfg.clientId && cfg.clientSecret),
     clientIdMasked: cfg.clientId ? `${cfg.clientId.slice(0, 14)}...` : "",

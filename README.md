@@ -1,6 +1,6 @@
 # IssueMate DevOps — ระบบแจ้งปัญหา & ติดตามงานสำหรับ Antigravity, Claude Code และ Codex
 
-> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com)
+> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com) · **Version**: `v3.2.0` (แสดงเลขเวอร์ชันและวัน-เวลา Deploy ล่าสุดบนหน้าเว็บและ API `/api/auth/me`)
 
 ระบบบริหารจัดการปัญหา (Issue Tracker) และเชื่อมโยงระหว่าง **ผู้ใช้งานทั่วไป / Tester (Non-Tech)** กับ **ทีมนักพัฒนา & AI Agent (Antigravity, Claude Code, Codex)** บน **`https://issue.dedezoom.com`** ภายใต้แนวคิด **"Easy for Tester, Rich for Dev"** — ให้ผู้แจ้งปัญหาพิมพ์หรือพูดเหมือนคุยแชท วางภาพแคปหน้าจอด้วย `Ctrl+V` พร้อมวาดวงกลม/ลูกศร/เบลอข้อมูลสำคัญได้ทันที ขณะที่ระบบแอบเก็บข้อมูลอุปกรณ์และจัดโครงสร้างเป็น Issue ระดับมืออาชีพให้นักพัฒนาครบ 100%
 
@@ -47,7 +47,10 @@
    - ผู้ใช้ตั้งคำถามได้ง่าย ทีมงานแนบไฟล์ PDF คู่มือและรูปภาพตอบกลับพร้อมกดปุ่ม **"ส่งคำตอบพร้อมไฟล์แนบ & ปิดเรื่องว่าเรียบร้อย"** ในคลิกเดียว เปิดอ่าน PDF ในหน้าจอได้ทันที (`Inline PDF Viewer`)
 3. **ระบบสิทธิ์ผู้ใช้งานละเอียดถึงระดับโปรเจกต์ (`Granular Per-Project Permissions`)**:
    - กำหนดสิทธิ์ราย Gmail แยกตามโปรเจกต์ได้ 5 ระดับ: `question_only` (ถามได้อย่างเดียว), `reporter` (แจ้งปัญหา & ถามได้), `viewer` (ดูอย่างเดียว), `developer` (ทีมแก้ไข/ตอบคำถาม), `project_admin` (ผู้ดูแลโปรเจกต์)
-4. **ความปลอดภัยระดับ Production (Hardened Auth & CSRF/XSS Protection)**:
+4. **แจ้งผลการดำเนินการชัดเจนทุกปุ่ม (`Action Response Feedback`) & หน้าจอ `Auto-Responsive + Auto-Refresh`**:
+   - ทุกการกดส่งความคิดเห็น เปลี่ยนสถานะ โหวต สร้างรายการ หรือตั้งค่า มีแถบแจ้งเตือนยืนยันผลสำเร็จ/ไม่สำเร็จชัดเจนทันที
+   - ตารางแสดงผลเต็ม 100% แบบ Auto-Responsive ไม่ล้นจอ พับ Sidebar อัตโนมัติบนหน้าจอขนาดเล็ก และซิงค์ข้อมูลอัตโนมัติในพื้นหลังทุก 8 วินาที
+5. **ความปลอดภัยระดับ Production (Hardened Auth & CSRF/XSS Protection)**:
    - ล็อกอินผ่าน **Sign in with Google** เท่านั้น เซ็นคุกกี้ด้วย `HMAC-SHA256 (SESSION_SECRET)` พร้อมวันหมดอายุและ `sessionVersion`
    - ซ่อนอีเมลส่วนตัว (`***`) สำหรับผู้ที่ไม่ได้เป็น Admin และบังคับตรวจสิทธิ์โปรเจกต์ทุก API รวมถึงการดาวน์โหลดไฟล์แนบ
 

@@ -863,6 +863,10 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
           buffer: dummyPdfBuffer,
         },
       ]);
+      await expect(replyForm.getByTestId("uploaded-file-card-0")).toContainText(
+        "vat-report-guide.pdf"
+      );
+
       await replyForm.getByTestId("image-upload-input").setInputFiles([
         {
           name: "vat-screen-step1.png",
@@ -870,16 +874,18 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
           buffer: pngBuf,
         },
       ]);
-
-      await expect(replyForm.getByTestId("uploaded-file-card-0")).toContainText(
-        "vat-report-guide.pdf"
-      );
       await expect(replyForm.getByTestId("uploaded-image-card-0")).toContainText(
         "vat-screen-step1.png"
       );
 
       // Click "ส่งคำตอบพร้อมไฟล์แนบ & ปิดเรื่องว่าเรียบร้อย"
       await page.getByTestId("send-answer-resolve-btn").click();
+
+      // Verify response feedback banners appear on comment submission!
+      await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
+      await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
+      await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.2.0");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();

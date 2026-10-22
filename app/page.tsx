@@ -24,6 +24,7 @@ import {
   HelpCircle,
   BookmarkCheck,
   ShieldCheck,
+  Menu,
 } from "lucide-react";
 import type {
   ProjectRecord,
@@ -56,6 +57,7 @@ import {
   CreateIssueModal,
   AiMcpGuideModal,
 } from "@/components/Modals";
+import { APP_VERSION, DEPLOYED_AT_TH } from "@/lib/version";
 
 type ProjectWithCounts = ProjectRecord & { openCount: number; totalCount: number };
 type ViewMode = "monitor" | "table" | "kanban" | "roadmap";
@@ -104,6 +106,21 @@ export default function IssueMateAppPage() {
     useState<IssueType>("bug");
   const [isAiMcpOpen, setIsAiMcpOpen] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const [actionFeedback, setActionFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  const showFeedback = useCallback(
+    (type: "success" | "error", message: string) => {
+      setActionFeedback({ type, message });
+      setTimeout(() => {
+        setActionFeedback((prev) => (prev?.message === message ? null : prev));
+      }, 4500);
+    },
+    []
+  );
 
   const latestFetchId = useRef(0);
 
@@ -210,77 +227,103 @@ export default function IssueMateAppPage() {
     }
   }, []);
 
-  const fetchAllData = useCallback(async () => {
-    const fetchId = ++latestFetchId.current;
-    if (!currentUser) {
-      // Logged out: drop whatever the previous session could see
-      setProjects([]);
-      setIssues([]);
-      setMonitorStats(null);
-      setSelectedIssue(null);
-      setIsLoading(!authChecked);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (selectedProjectKey !== "ALL") params.set("projectKey", selectedProjectKey);
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (typeFilter !== "all") params.set("type", typeFilter);
-      if (priorityFilter !== "all") params.set("priority", priorityFilter);
-      if (searchQuery.trim()) params.set("search", searchQuery.trim());
-      params.set("sortBy", sortBy);
-      params.set("sortDir", sortDir);
-
-      const monitorParams = new URLSearchParams();
-      if (selectedProjectKey !== "ALL") monitorParams.set("projectKey", selectedProjectKey);
-
-      const [projRes, issuesRes, monRes] = await Promise.all([
-        fetch("/api/projects"),
-        fetch(`/api/issues?${params.toString()}`),
-        fetch(`/api/monitor?${monitorParams.toString()}`),
-      ]);
-
-      const [projData, issuesData, monData] = await Promise.all([
-        projRes.json(),
-        issuesRes.json(),
-        monRes.json(),
-      ]);
-      if (fetchId !== latestFetchId.current) return;
-
-      if (projData.projects) setProjects(projData.projects);
-      if (issuesData.issues) {
-        setIssues(issuesData.issues);
-        setSelectedIssue((prev) => {
-          if (!prev) return null;
-          const refreshed = issuesData.issues.find(
-            (i: IssueRecord) => i.code === prev.code
-          );
-          return refreshed || prev;
-        });
+  const fetchAllData = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const fetchId = ++latestFetchId.current;
+      if (!currentUser) {
+        // Logged out: drop whatever the previous session could see
+        setProjects([]);
+        setIssues([]);
+        setMonitorStats(null);
+        setSelectedIssue(null);
+        setIsLoading(!authChecked);
+        return;
       }
-      if (monData.stats) setMonitorStats(monData.stats);
-    } catch (err) {
-      console.error("Failed to fetch data:", err);
-    } finally {
-      if (fetchId === latestFetchId.current) setIsLoading(false);
-    }
-  }, [
-    selectedProjectKey,
-    statusFilter,
-    typeFilter,
-    priorityFilter,
-    searchQuery,
-    sortBy,
-    sortDir,
-    selectedIssue?.code,
-    currentUser,
-    authChecked,
-  ]);
+      if (!opts?.silent) {
+        setIsLoading(true);
+      }
+      try {
+        const params = new URLSearchParams();
+        if (selectedProjectKey !== "ALL") params.set("projectKey", selectedProjectKey);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        if (typeFilter !== "all") params.set("type", typeFilter);
+        if (priorityFilter !== "all") params.set("priority", priorityFilter);
+        if (searchQuery.trim()) params.set("search", searchQuery.trim());
+        params.set("sortBy", sortBy);
+        params.set("sortDir", sortDir);
+
+        const monitorParams = new URLSearchParams();
+        if (selectedProjectKey !== "ALL") monitorParams.set("projectKey", selectedProjectKey);
+
+        const [projRes, issuesRes, monRes] = await Promise.all([
+          fetch("/api/projects"),
+          fetch(`/api/issues?${params.toString()}`),
+          fetch(`/api/monitor?${monitorParams.toString()}`),
+        ]);
+
+        const [projData, issuesData, monData] = await Promise.all([
+          projRes.json(),
+          issuesRes.json(),
+          monRes.json(),
+        ]);
+        if (fetchId !== latestFetchId.current) return;
+
+        if (projData.projects) setProjects(projData.projects);
+        if (issuesData.issues) {
+          setIssues(issuesData.issues);
+          setSelectedIssue((prev) => {
+            if (!prev) return null;
+            const refreshed = issuesData.issues.find(
+              (i: IssueRecord) => i.code === prev.code
+            );
+            return refreshed || prev;
+          });
+        }
+        if (monData.stats) setMonitorStats(monData.stats);
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
+      } finally {
+        if (fetchId === latestFetchId.current && !opts?.silent) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [
+      selectedProjectKey,
+      statusFilter,
+      typeFilter,
+      priorityFilter,
+      searchQuery,
+      sortBy,
+      sortDir,
+      currentUser,
+      authChecked,
+    ]
+  );
 
   useEffect(() => {
     void fetchAllData();
   }, [fetchAllData]);
+
+  // Auto-Refresh (Real-time polling every 8s + on window focus) so AI/team updates appear automatically
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void fetchAllData({ silent: true });
+      }
+    }, 8000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void fetchAllData({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [currentUser, fetchAllData]);
 
   // Global Keyboard Shortcuts: Ctrl+K / Cmd+K for Command Palette, Esc to close modals/drawer
   useEffect(() => {
@@ -369,25 +412,34 @@ export default function IssueMateAppPage() {
         actor: currentUser?.name || "ลุงจืด (DevOps Lead)",
       }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.issue) {
-        setSelectedIssue((prev) =>
-          prev && prev.code === data.issue.code ? data.issue : prev
-        );
-      }
-      await fetchAllData();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = data.error || "อัปเดตข้อมูลไม่สำเร็จ";
+      showFeedback("error", `❌ อัปเดต #${code} ไม่สำเร็จ: ${errMsg}`);
+      throw new Error(errMsg);
     }
+    if (data.issue) {
+      setSelectedIssue((prev) =>
+        prev && prev.code === data.issue.code ? data.issue : prev
+      );
+    }
+    showFeedback("success", `✅ บันทึกการอัปเดตรายการ #${code} สำเร็จเรียบร้อยแล้ว`);
+    await fetchAllData();
   };
 
   const handleDeleteIssue = async (code: string) => {
     const res = await fetch(`/api/issues/${encodeURIComponent(code)}`, {
       method: "DELETE",
     });
-    if (res.ok) {
-      setSelectedIssue(null);
-      await fetchAllData();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = data.error || "ลบรายการไม่สำเร็จ";
+      showFeedback("error", `❌ ลบ #${code} ไม่สำเร็จ: ${errMsg}`);
+      throw new Error(errMsg);
     }
+    setSelectedIssue(null);
+    showFeedback("success", `✅ ลบรายการ #${code} เรียบร้อยแล้ว`);
+    await fetchAllData();
   };
 
   const handleAddComment = async (
@@ -408,15 +460,24 @@ export default function IssueMateAppPage() {
         nextStatus: options?.nextStatus,
       }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.issue) {
-        setSelectedIssue((prev) =>
-          prev && prev.code === data.issue.code ? data.issue : prev
-        );
-      }
-      await fetchAllData();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = data.error || "ส่งความคิดเห็นไม่สำเร็จ";
+      showFeedback("error", `❌ ส่งความคิดเห็นใน #${code} ไม่สำเร็จ: ${errMsg}`);
+      throw new Error(errMsg);
     }
+    if (data.issue) {
+      setSelectedIssue((prev) =>
+        prev && prev.code === data.issue.code ? data.issue : prev
+      );
+    }
+    showFeedback(
+      "success",
+      options?.isResolution
+        ? `✅ ส่งคำตอบและปิดเรื่อง #${code} เรียบร้อยแล้ว`
+        : `✅ ส่งความคิดเห็น / คำตอบใน #${code} สำเร็จเรียบร้อยแล้ว`
+    );
+    await fetchAllData();
   };
 
   const handleUploadFile = async (file: File): Promise<AttachmentRecord> => {
@@ -429,13 +490,19 @@ export default function IssueMateAppPage() {
     });
     const data = await res.json();
     if (!res.ok) {
+      showFeedback("error", `❌ อัปโหลดไฟล์ไม่สำเร็จ: ${data.error || "เกิดข้อผิดพลาด"}`);
       throw new Error(data.error || "อัปโหลดไฟล์ไม่สำเร็จ");
     }
+    showFeedback("success", `✅ อัปโหลดไฟล์ "${file.name}" สำเร็จแล้ว`);
     return data.attachment;
   };
 
   const handleQuickStatusChange = async (code: string, nextStatus: IssueStatus) => {
-    await handleUpdateIssue(code, { status: nextStatus });
+    try {
+      await handleUpdateIssue(code, { status: nextStatus });
+    } catch {
+      // handled in handleUpdateIssue
+    }
   };
 
   const handleQuickUpvote = async (code: string) => {
@@ -447,8 +514,12 @@ export default function IssueMateAppPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ toggleUpvoteBy: voter }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        showFeedback("success", `✅ บันทึกคะแนนโหวต #${code} เรียบร้อยแล้ว`);
         void fetchAllData();
+      } else {
+        showFeedback("error", `❌ โหวต #${code} ไม่สำเร็จ: ${data.error || "ไม่มีสิทธิ์"}`);
       }
     } catch (err) {
       console.error("Upvote error:", err);
@@ -459,11 +530,16 @@ export default function IssueMateAppPage() {
     if (!window.confirm("ยืนยันล้างข้อมูล Issues ทั้งหมดและไฟล์แนบ? ย้อนกลับไม่ได้")) return;
     try {
       setIsLoading(true);
-      await fetch("/api/seed", {
+      const res = await fetch("/api/seed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
       });
+      if (res.ok) {
+        showFeedback("success", "✅ ล้างข้อมูล Issues ทั้งหมดและรีเซ็ตระบบเรียบร้อยแล้ว");
+      } else {
+        showFeedback("error", "❌ ล้างข้อมูลไม่สำเร็จ");
+      }
       await fetchAllData();
     } catch (err) {
       console.error("Reseed error:", err);
@@ -534,8 +610,20 @@ export default function IssueMateAppPage() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
-      {/* Left Sidebar: DevOps Projects & Navigation */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/95">
+      {/* Mobile Sidebar Backdrop */}
+      {isMobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/65 backdrop-blur-xs lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Left Sidebar: Auto-Responsive (Slide-over on mobile/tablet, fixed on desktop) */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 xl:w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/95 transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         {/* Brand Header */}
         <div className="flex h-14 items-center justify-between border-b border-slate-800 px-4">
           <div className="flex items-center gap-2.5">
@@ -830,16 +918,54 @@ export default function IssueMateAppPage() {
             <span>ผู้ช่วยดูแลระบบ:</span>
             <span className="font-mono text-cyan-300">ทีมงาน & Antigravity</span>
           </div>
+          <div
+            data-testid="app-version-deploy-info"
+            className="mt-1.5 flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/90 px-2 py-1 text-[10px]"
+          >
+            <span className="font-mono font-bold text-emerald-400">{APP_VERSION}</span>
+            <span className="font-mono text-slate-300">Deploy: {DEPLOYED_AT_TH}</span>
+          </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Top Toolbar (Baseline aligned 2-row header) */}
-        <header className="flex flex-col border-b border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/85 to-slate-900/95 px-5 py-2 gap-2">
+        {/* Global Action Response Banner (Success / Error Feedback) */}
+        {actionFeedback && (
+          <div
+            data-testid="global-action-feedback"
+            className={`flex h-9 shrink-0 items-center justify-between px-5 text-xs font-semibold transition-all ${
+              actionFeedback.type === "success"
+                ? "border-b border-emerald-500/40 bg-emerald-950/80 text-emerald-200"
+                : "border-b border-rose-500/40 bg-rose-950/80 text-rose-200"
+            }`}
+          >
+            <span>{actionFeedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setActionFeedback(null)}
+              className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-black/20 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Top Toolbar (Auto-Responsive Baseline aligned 2-row header) */}
+        <header className="flex flex-col border-b border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/85 to-slate-900/95 px-3 sm:px-5 py-2 gap-2">
           {/* Row 1: Quick Project Switcher & Title on Left, Ask Question + Report Issue + Search + Google Login on Right */}
-          <div className="flex h-9 items-center justify-between gap-3">
-            <div className="flex h-9 min-w-0 items-center gap-2">
+          <div className="flex flex-wrap min-h-9 items-center justify-between gap-2">
+            <div className="flex min-h-9 min-w-0 items-center gap-2">
+              <button
+                type="button"
+                data-testid="mobile-sidebar-toggle-btn"
+                onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:border-emerald-500/50 lg:hidden cursor-pointer"
+                title="เปิดเมนูโปรเจกต์"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+
               <div className="flex h-9 items-center gap-1.5">
                 <span className="text-[11px] font-medium text-slate-400 whitespace-nowrap hidden xl:inline">
                   โปรเจกต์ที่ทำงานอยู่:
@@ -884,9 +1010,17 @@ export default function IssueMateAppPage() {
                   จำโปรเจกต์ล่าสุด: {rememberedSpecificProject.key}
                 </span>
               )}
+
+              <span
+                data-testid="header-version-badge"
+                className="hidden lg:inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2.5 font-mono text-[10px] font-semibold text-cyan-300"
+                title={`เวอร์ชัน ${APP_VERSION} · วันเวลา Deploy ล่าสุด: ${DEPLOYED_AT_TH}`}
+              >
+                {APP_VERSION} · Deploy: {DEPLOYED_AT_TH}
+              </span>
             </div>
 
-            <div className="flex h-9 shrink-0 items-center gap-2">
+            <div className="flex flex-wrap min-h-9 shrink-0 items-center gap-1.5 sm:gap-2">
               {activeProjectPermission !== "viewer" && (
                 <>
                   <button
@@ -977,8 +1111,8 @@ export default function IssueMateAppPage() {
           </div>
 
           {/* Row 2: 6-Stage Filter Tabs + Type & Priority Selectors */}
-          <div className="flex h-9 items-center justify-between gap-2">
-            <div className="inline-flex h-9 items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 overflow-x-auto">
+          <div className="flex flex-wrap min-h-9 items-center justify-between gap-2">
+            <div className="inline-flex min-h-9 max-w-full items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 overflow-x-auto">
               <button
                 type="button"
                 data-testid="filter-tab-all"
@@ -1052,7 +1186,7 @@ export default function IssueMateAppPage() {
               </button>
             </div>
 
-            <div className="flex h-9 shrink-0 items-center gap-1.5">
+            <div className="flex flex-wrap min-h-9 shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 data-testid="filter-type-question-pill"
@@ -1244,6 +1378,10 @@ export default function IssueMateAppPage() {
         onClose={() => setIsCreateProjectOpen(false)}
         onCreated={(proj) => {
           rememberSpecificProject(proj.key, true);
+          showFeedback(
+            "success",
+            `✅ สร้างโปรเจกต์ใหม่ [${proj.key}] ${proj.name} สำเร็จเรียบร้อยแล้ว`
+          );
           void fetchAllData();
         }}
       />
@@ -1259,6 +1397,10 @@ export default function IssueMateAppPage() {
         onCreated={(created) => {
           rememberSpecificProject(created.projectKey, true);
           setSelectedIssue(created);
+          showFeedback(
+            "success",
+            `✅ ส่งเรื่องใหม่ #${created.code} ("${created.title}") สำเร็จเรียบร้อยแล้ว`
+          );
           void fetchAllData();
         }}
         currentUserName={

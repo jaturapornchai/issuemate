@@ -94,7 +94,9 @@ export function FileUploadZone({
         }
 
         const uploaded: AttachmentItem[] = data.attachments || [];
-        onChange([...attachmentsRef.current, ...uploaded]);
+        const next = [...attachmentsRef.current, ...uploaded];
+        attachmentsRef.current = next;
+        onChange(next);
       } catch (err: unknown) {
         setErrorMsg(err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการอัปโหลด");
       } finally {

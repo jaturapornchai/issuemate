@@ -26,6 +26,7 @@ import {
   PROJECT_PERMISSION_CONFIG,
 } from "@/lib/permissions";
 import type { ProjectRecord } from "@/lib/types";
+import { APP_VERSION, DEPLOYED_AT_TH } from "@/lib/version";
 
 export function GoogleIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -532,21 +533,29 @@ export function GoogleLoginModal({
         className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-2xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-5 py-3.5">
           <div className="flex items-center gap-2.5 text-sm font-bold text-white">
             <GoogleIcon className="h-4 w-4" />
             <span>
               เข้าสู่ระบบด้วย Gmail & จัดการสิทธิ์ผู้ใช้งาน / โปรเจกต์ (Admin: {superAdminMasked})
             </span>
           </div>
-          <button
-            type="button"
-            data-testid="close-google-modal-btn"
-            onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <span
+              data-testid="login-modal-version-info"
+              className="rounded-md border border-emerald-500/35 bg-emerald-950/40 px-2.5 py-1 font-mono text-[11px] font-semibold text-emerald-300"
+            >
+              {APP_VERSION} · Deploy ล่าสุด: {DEPLOYED_AT_TH}
+            </span>
+            <button
+              type="button"
+              data-testid="close-google-modal-btn"
+              onClick={onClose}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Sub-navigation Tabs */}

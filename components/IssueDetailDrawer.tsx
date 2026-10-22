@@ -80,6 +80,11 @@ export function IssueDetailDrawer({
   const [isUploadingReplyFiles, setIsUploadingReplyFiles] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+  const [drawerSuccess, setDrawerSuccess] = useState<string | null>(null);
+  const [commentFeedback, setCommentFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedAgPrompt, setCopiedAgPrompt] = useState(false);
   const [copiedGitBranch, setCopiedGitBranch] = useState(false);
@@ -112,11 +117,6 @@ export function IssueDetailDrawer({
     if (issue) {
       setTitleValue(issue.title);
       setDescValue(issue.description);
-      setEditingTitle(false);
-      setEditingDesc(false);
-      setConfirmingDelete(false);
-      setDrawerError(null);
-
       const rm = issue.reviewMeta;
       setReviewDecision(rm?.decision || "pending");
       setReviewedBy(rm?.reviewedBy || "Antigravity");
@@ -128,6 +128,17 @@ export function IssueDetailDrawer({
       setDeployResult(rm?.deployResult || "");
     }
   }, [issue]);
+
+  useEffect(() => {
+    setEditingTitle(false);
+    setEditingDesc(false);
+    setConfirmingDelete(false);
+    setDrawerError(null);
+    setDrawerSuccess(null);
+    setCommentFeedback(null);
+    setCommentBody("");
+    setCommentAttachments([]);
+  }, [issue?.code]);
 
   useEffect(() => {
     if (!issue) return;
@@ -163,6 +174,30 @@ export function IssueDetailDrawer({
     };
   };
 
+  const showDrawerSuccess = (msg: string) => {
+    setDrawerError(null);
+    setDrawerSuccess(msg);
+    setTimeout(() => {
+      setDrawerSuccess((prev) => (prev === msg ? null : prev));
+    }, 4500);
+  };
+
+  const runDrawerUpdate = async (
+    updates: Record<string, unknown>,
+    successText = "บันทึกการเปลี่ยนแปลงเรียบร้อยแล้ว"
+  ) => {
+    setDrawerError(null);
+    try {
+      await onUpdate(issue.code, updates);
+      showDrawerSuccess(`✅ ${successText}`);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "อัปเดตข้อมูลไม่สำเร็จ";
+      setDrawerError(`❌ ${msg}`);
+      return false;
+    }
+  };
+
   const handleSaveReviewAndStatus = async (
     nextStatus?: IssueStatus,
     nextDecision?: "pending" | "fix" | "wont_fix"
@@ -180,9 +215,16 @@ export function IssueDetailDrawer({
       }
       await onUpdate(issue.code, updates);
       setSavedReviewNotice(true);
-      setTimeout(() => setSavedReviewNotice(false), 2000);
+      showDrawerSuccess(
+        nextStatus
+          ? `✅ บันทึกผลการตรวจสอบและเปลี่ยนสถานะเป็น "${STATUS_CONFIG[nextStatus].shortLabel}" สำเร็จแล้ว`
+          : "✅ บันทึกผลการตรวจสอบสำเร็จแล้ว"
+      );
+      setTimeout(() => setSavedReviewNotice(false), 2500);
     } catch (err: unknown) {
-      setDrawerError(err instanceof Error ? err.message : "บันทึกผลการตรวจสอบไม่สำเร็จ");
+      setDrawerError(
+        `❌ ${err instanceof Error ? err.message : "บันทึกผลการตรวจสอบไม่สำเร็จ"}`
+      );
     } finally {
       setSavingReview(false);
     }
@@ -229,6 +271,7 @@ export function IssueDetailDrawer({
     if (isUploadingReplyFiles) return;
     setSubmitting(true);
     setDrawerError(null);
+    setCommentFeedback(null);
     try {
       await onAddComment(
         issue.code,
@@ -237,10 +280,23 @@ export function IssueDetailDrawer({
         commentAttachments,
         options
       );
+      const okMsg = options?.isResolution
+        ? "✅ ส่งคำตอบพร้อมไฟล์แนบ และปิดเรื่องว่าเรียบร้อยสำเร็จแล้ว!"
+        : "✅ ส่งความคิดเห็น / คำตอบสำเร็จเรียบร้อยแล้ว!";
       setCommentBody("");
       setCommentAttachments([]);
+      setCommentFeedback({ type: "success", message: okMsg });
+      showDrawerSuccess(okMsg);
+      setTimeout(() => {
+        setCommentFeedback((prev) => (prev?.message === okMsg ? null : prev));
+      }, 5000);
     } catch (err: unknown) {
-      setDrawerError(err instanceof Error ? err.message : "ส่งข้อความไม่สำเร็จ");
+      const errMsg = err instanceof Error ? err.message : "ส่งข้อความไม่สำเร็จ";
+      setDrawerError(`❌ ${errMsg}`);
+      setCommentFeedback({
+        type: "error",
+        message: `❌ ส่งความคิดเห็นไม่สำเร็จ: ${errMsg}`,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -332,8 +388,34 @@ export function IssueDetailDrawer({
         {/* Content Scroll */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {drawerError && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3.5 py-2 text-xs text-rose-300">
-              {drawerError}
+            <div
+              data-testid="drawer-error-banner"
+              className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/40 bg-rose-500/15 px-3.5 py-2.5 text-xs font-medium text-rose-200"
+            >
+              <span>{drawerError}</span>
+              <button
+                type="button"
+                onClick={() => setDrawerError(null)}
+                className="text-rose-300 hover:text-white cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {drawerSuccess && (
+            <div
+              data-testid="drawer-feedback-banner"
+              className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/45 bg-emerald-500/15 px-3.5 py-2.5 text-xs font-semibold text-emerald-200"
+            >
+              <span>{drawerSuccess}</span>
+              <button
+                type="button"
+                onClick={() => setDrawerSuccess(null)}
+                className="text-emerald-300 hover:text-white cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 
@@ -405,8 +487,11 @@ export function IssueDetailDrawer({
                 />
                 <button
                   onClick={async () => {
-                    await onUpdate(issue.code, { title: titleValue });
-                    setEditingTitle(false);
+                    const ok = await runDrawerUpdate(
+                      { title: titleValue },
+                      "บันทึกหัวข้อรายการเรียบร้อยแล้ว"
+                    );
+                    if (ok) setEditingTitle(false);
                   }}
                   className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 cursor-pointer"
                 >
@@ -442,7 +527,10 @@ export function IssueDetailDrawer({
                   value={issue.type}
                   disabled={!canManageStatus}
                   onChange={(e) =>
-                    onUpdate(issue.code, { type: e.target.value as IssueType })
+                    void runDrawerUpdate(
+                      { type: e.target.value as IssueType },
+                      `เปลี่ยนประเภทเรื่องเป็น "${TYPE_CONFIG[e.target.value as IssueType].label}" สำเร็จแล้ว`
+                    )
                   }
                   className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 disabled:opacity-60"
                 >
@@ -456,7 +544,10 @@ export function IssueDetailDrawer({
                   value={issue.priority}
                   disabled={!canManageStatus}
                   onChange={(e) =>
-                    onUpdate(issue.code, { priority: e.target.value as IssuePriority })
+                    void runDrawerUpdate(
+                      { priority: e.target.value as IssuePriority },
+                      `เปลี่ยนความเร่งด่วนเป็น "${PRIORITY_CONFIG[e.target.value as IssuePriority].label}" สำเร็จแล้ว`
+                    )
                   }
                   className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 disabled:opacity-60"
                 >
@@ -501,8 +592,11 @@ export function IssueDetailDrawer({
                   </button>
                   <button
                     onClick={async () => {
-                      await onUpdate(issue.code, { description: descValue });
-                      setEditingDesc(false);
+                      const ok = await runDrawerUpdate(
+                        { description: descValue },
+                        "บันทึกรายละเอียดเรียบร้อยแล้ว"
+                      );
+                      if (ok) setEditingDesc(false);
                     }}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 cursor-pointer"
                   >
@@ -591,7 +685,13 @@ export function IssueDetailDrawer({
                     type="button"
                     disabled={!canManageStatus}
                     data-testid={`status-step-${stKey}`}
-                    onClick={() => canManageStatus && onUpdate(issue.code, { status: stKey })}
+                    onClick={() =>
+                      canManageStatus &&
+                      void runDrawerUpdate(
+                        { status: stKey },
+                        `เปลี่ยนสถานะเป็น "${cfg.shortLabel}" สำเร็จแล้ว`
+                      )
+                    }
                     className={`flex flex-col items-start justify-between p-2.5 rounded-lg border text-left transition-all ${
                       active
                         ? `${cfg.bg} text-white ring-2 ring-indigo-500/40 shadow-sm`
@@ -836,6 +936,26 @@ export function IssueDetailDrawer({
                   compact
                   onUploadingChange={setIsUploadingReplyFiles}
                 />
+
+                {commentFeedback && (
+                  <div
+                    data-testid="comment-feedback-banner"
+                    className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                      commentFeedback.type === "success"
+                        ? "border-emerald-500/45 bg-emerald-500/15 text-emerald-200"
+                        : "border-rose-500/45 bg-rose-500/15 text-rose-200"
+                    }`}
+                  >
+                    <span>{commentFeedback.message}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCommentFeedback(null)}
+                      className="opacity-80 hover:opacity-100 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <span className="text-[11px] text-slate-400">

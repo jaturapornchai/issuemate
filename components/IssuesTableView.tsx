@@ -32,17 +32,17 @@ const COLUMNS: Array<
   ResizableColumnDef & { label: string; sortField: string; align?: "left" | "center" }
 > = [
   { key: "code", label: "รหัสเรื่อง", sortField: "code", defaultWidth: 11 },
-  { key: "status", label: "สถานะการดำเนินการ", sortField: "status", defaultWidth: 12 },
+  { key: "status", label: "สถานะ", sortField: "status", defaultWidth: 12 },
   {
     key: "title",
     label: "หัวข้อปัญหา / คำถามที่สอบถาม / ความคืบหน้าการแก้ไข",
     sortField: "title",
-    defaultWidth: 36,
+    defaultWidth: 34,
   },
-  { key: "type", label: "หมวดหมู่", sortField: "type", defaultWidth: 11 },
-  { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 10 },
+  { key: "type", label: "หมวดหมู่", sortField: "type", defaultWidth: 12 },
+  { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 9 },
   { key: "assignee", label: "ผู้ดูแล / ผู้ตอบ", sortField: "assignee", defaultWidth: 11 },
-  { key: "meta", label: "ไฟล์แนบ / โหวต", sortField: "upvotes", defaultWidth: 9, align: "center" },
+  { key: "meta", label: "ไฟล์ / โหวต", sortField: "upvotes", defaultWidth: 11, align: "center" },
 ];
 
 const SEVERITY_CLASS: Record<string, string> = {
@@ -142,7 +142,7 @@ export function IssuesTableView({
     resetWidths,
     handleHeaderClick,
   } = useResizableColumns({
-    storageKey: "issuemate_devops_table_v3",
+    storageKey: "issuemate_devops_table_v4",
     columns: COLUMNS,
     onHeaderRefresh: (colKey) => {
       if (onHeaderRefresh) {
@@ -196,7 +196,7 @@ export function IssuesTableView({
                     aria-sort={isSorted ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     style={getColStyle(c.key)}
                     onClick={() => handleHeaderClick(c.key)}
-                    className={`group/th relative h-9 cursor-pointer overflow-hidden border-r border-slate-800/80 px-2.5 text-left font-semibold transition hover:bg-slate-800/70 last:border-r-0 ${
+                    className={`group/th relative cursor-pointer overflow-hidden border-r border-slate-800/80 px-2.5 py-2.5 text-left font-semibold leading-normal transition hover:bg-slate-800/70 last:border-r-0 ${
                       isSorted ? "text-emerald-300" : "text-slate-300"
                     }`}
                   >
@@ -285,19 +285,19 @@ export function IssuesTableView({
                         {issue.assignee || <span className="text-slate-500">ยังไม่มอบหมาย</span>}
                       </div>
                     </td>
-                    <td style={getColStyle("meta")} className="overflow-hidden px-1.5 py-2 align-middle">
-                      <div className="flex items-center justify-center gap-1.5 text-[11px] leading-none text-slate-300">
+                    <td style={getColStyle("meta")} className="overflow-hidden px-2 py-2 align-middle">
+                      <div className="flex flex-wrap items-center justify-center gap-1 text-[11px] leading-none text-slate-300">
                         <span
-                          className="inline-flex h-6 items-center gap-0.5 text-sky-400"
+                          className="inline-flex h-6 items-center gap-0.5 text-sky-400 shrink-0"
                           title={`ไฟล์แนบ ${issue.attachments?.length || 0} ไฟล์ • ความคิดเห็น ${
                             issue.comments?.length || 0
                           }`}
                         >
-                          <Paperclip className="h-3.5 w-3.5" />
+                          <Paperclip className="h-3 w-3" />
                           {issue.attachments?.length || 0}
                         </span>
-                        <span className="hidden h-6 items-center gap-0.5 text-slate-400 xl:inline-flex">
-                          <MessageSquare className="h-3.5 w-3.5" />
+                        <span className="inline-flex h-6 items-center gap-0.5 text-slate-400 shrink-0">
+                          <MessageSquare className="h-3 w-3" />
                           {issue.comments?.length || 0}
                         </span>
                         {onUpvote && (
@@ -309,7 +309,7 @@ export function IssuesTableView({
                               e.stopPropagation();
                               onUpvote(issue.code);
                             }}
-                            className="inline-flex h-6 items-center gap-1 rounded-md border border-amber-500/35 bg-amber-500/10 px-1.5 font-semibold text-amber-300 transition hover:border-amber-400/70 hover:bg-amber-500/25 active:scale-95"
+                            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-amber-500/35 bg-amber-500/10 px-1.5 font-semibold text-amber-300 transition hover:border-amber-400/70 hover:bg-amber-500/25 active:scale-95 cursor-pointer"
                           >
                             <ThumbsUp className="h-3 w-3" />
                             {issue.upvotes || 0}
