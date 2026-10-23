@@ -611,12 +611,18 @@ export function CreateIssueModal({
           {/* Step 1 — type */}
           <section>
             <SectionHeading step={1} title="เรื่องที่ต้องการแจ้ง" hint="เลือกหัวข้อที่ใกล้เคียงที่สุด" />
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {TYPE_ORDER.map((t) => {
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-12">
+              {TYPE_ORDER.map((t, idx) => {
                 const cfg = TYPE_CONFIG[t];
                 const Icon = cfg.icon;
                 const isSelected = type === t;
                 const disabled = isQuestionOnly && t !== "question";
+                const spanClass =
+                  idx === 0
+                    ? "col-span-2 sm:col-span-4"
+                    : idx < 3
+                    ? "sm:col-span-4"
+                    : "sm:col-span-3";
                 return (
                   <button
                     key={t}
@@ -625,7 +631,7 @@ export function CreateIssueModal({
                     aria-pressed={isSelected}
                     data-testid={`quick-type-pill-${t}`}
                     onClick={() => !disabled && setType(t)}
-                    className={`flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-35 ${
+                    className={`${spanClass} flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-35 ${
                       isSelected
                         ? "border-emerald-400/50 bg-emerald-400/[0.07] ring-1 ring-emerald-400/30 ring-inset"
                         : "border-line bg-white/[0.02] hover:border-line-strong hover:bg-white/[0.04]"

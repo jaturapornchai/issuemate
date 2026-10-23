@@ -1009,18 +1009,23 @@ export default function IssueMateAppPage() {
 
           {/* Breadcrumb: project switcher / current view */}
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <div className="relative min-w-0 shrink">
+            <div className="relative inline-flex h-9 max-w-[14rem] min-w-0 items-center rounded-lg border border-transparent pr-7 pl-8 text-sm font-semibold text-fg transition hover:border-line hover:bg-white/[0.04] focus-within:border-emerald-400/50 sm:max-w-[20rem]">
               <span
                 className="pointer-events-none absolute top-1/2 left-3 h-2.5 w-2.5 -translate-y-1/2 rounded-[4px]"
                 style={{ backgroundColor: currentProject?.color || "#6d7787" }}
               />
+              <span className="truncate">
+                {currentProject
+                  ? `${currentProject.name} · ${currentProject.key}`
+                  : "ทุกโปรเจกต์"}
+              </span>
               <select
                 value={selectedProjectKey}
                 data-testid="header-project-select"
                 onChange={(e) => selectProject(e.target.value)}
                 aria-label="เลือกโปรเจกต์"
                 title="สลับโปรเจกต์ (ระบบจะจำโปรเจกต์ที่เลือกไว้ให้อัตโนมัติ)"
-                className="h-9 w-full max-w-[18rem] min-w-0 cursor-pointer appearance-none truncate [field-sizing:content] rounded-lg border border-transparent bg-transparent pr-7 pl-8 text-sm font-semibold text-fg transition hover:border-line hover:bg-white/[0.04] focus:border-emerald-400/50 focus:outline-none"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               >
                 <option value="ALL">ทุกโปรเจกต์</option>
                 {visibleProjects.map((p) => (
@@ -1177,7 +1182,7 @@ export default function IssueMateAppPage() {
                 })}
               </div>
 
-              <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex w-full items-center gap-1.5 sm:ml-auto sm:w-auto sm:flex-wrap sm:gap-2">
                 <button
                   type="button"
                   data-testid="filter-type-question-pill"
@@ -1185,7 +1190,7 @@ export default function IssueMateAppPage() {
                   onClick={() =>
                     setTypeFilter((prev) => (prev === "question" ? "all" : "question"))
                   }
-                  className={`btn btn-sm ${
+                  className={`btn btn-sm shrink-0 px-2 sm:px-2.5 ${
                     typeFilter === "question"
                       ? "border border-sky-400/40 bg-sky-400/15 text-sky-100"
                       : "btn-secondary"
@@ -1202,7 +1207,7 @@ export default function IssueMateAppPage() {
                   data-testid="type-filter-select"
                   onChange={(e) => setTypeFilter(e.target.value as IssueType | "all")}
                   aria-label="กรองตามประเภท"
-                  className="select h-8 w-auto text-xs"
+                  className="select h-8 min-w-0 flex-1 pr-6 pl-2.5 text-xs sm:w-auto sm:flex-none sm:pr-8 sm:pl-3"
                 >
                   <option value="all">ทุกประเภท</option>
                   {TYPE_ORDER.map((t) => (
@@ -1217,7 +1222,7 @@ export default function IssueMateAppPage() {
                   data-testid="priority-filter-select"
                   onChange={(e) => setPriorityFilter(e.target.value as IssuePriority | "all")}
                   aria-label="กรองตามความเร่งด่วน"
-                  className="select h-8 w-auto text-xs"
+                  className="select h-8 min-w-0 flex-1 pr-6 pl-2.5 text-xs sm:w-auto sm:flex-none sm:pr-8 sm:pl-3"
                 >
                   <option value="all">ทุกความเร่งด่วน</option>
                   {PRIORITY_ORDER.map((p) => (

@@ -377,19 +377,20 @@ const AVATAR_TONES = [
   "bg-teal-500/20 text-teal-200",
 ];
 
-const THAI_LEADING_VOWELS = /^[เแโใไ]/;
-
 export function initialsOf(name?: string): string {
   const clean = (name || "?")
     .replace(/<[^>]*>/g, "")
-    .replace(/^(คุณ|นางสาว|นาย|นาง|น\.ส\.)\s*/u, "")
+    .replace(/\[[^\]]*\]|\([^)]*\)/g, "")
+    .replace(/^(คุณ|นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|ดร\.)\s*/u, "")
     .trim();
   if (!clean) return "?";
   if (/^[a-z]/i.test(clean)) {
-    const parts = clean.split(/[\s._-]+/).filter(Boolean);
+    const parts = clean.split(/[\s._@-]+/).filter(Boolean);
     return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
   }
-  return THAI_LEADING_VOWELS.test(clean) ? clean.slice(0, 2) : clean.slice(0, 1);
+  const thaiConsonant = clean.match(/[\u0E01-\u0E2E]/);
+  if (thaiConsonant) return thaiConsonant[0];
+  return Array.from(clean)[0] || "?";
 }
 
 export function Avatar({
