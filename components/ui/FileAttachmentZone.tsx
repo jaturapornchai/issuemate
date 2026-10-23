@@ -14,15 +14,15 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  ClipboardPaste,
   Paperclip,
-  Plus,
   Pencil,
   Circle,
   MoveUpRight,
   EyeOff,
   RotateCcw,
   Check,
+  FileSpreadsheet,
+  ChevronDown,
 } from "lucide-react";
 import type { AttachmentItem } from "@/lib/types";
 import { formatFileSize } from "./Badges";
@@ -37,6 +37,32 @@ function isSafeImageAttachment(a: AttachmentItem): boolean {
   return a.kind === "image" || lowerMime.startsWith("image/");
 }
 
+function isPdfDoc(doc: AttachmentItem) {
+  return doc.mimeType?.toLowerCase().includes("pdf") || doc.name.toLowerCase().endsWith(".pdf");
+}
+
+function DocIcon({ doc, className = "h-9 w-9" }: { doc: AttachmentItem; className?: string }) {
+  const lower = doc.name.toLowerCase();
+  if (isPdfDoc(doc)) {
+    return (
+      <span className={`flex shrink-0 items-center justify-center rounded-lg bg-rose-500/15 font-mono text-[10px] font-bold text-rose-300 ring-1 ring-rose-400/25 ring-inset ${className}`}>
+        PDF
+      </span>
+    );
+  }
+  const isSheet = /\.(xlsx?|csv)$/.test(lower);
+  const Icon = isSheet ? FileSpreadsheet : FileText;
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${
+        isSheet ? "bg-emerald-500/15 text-emerald-300 ring-emerald-400/25" : "bg-sky-500/15 text-sky-300 ring-sky-400/25"
+      } ${className}`}
+    >
+      <Icon className="h-4 w-4" />
+    </span>
+  );
+}
+
 export function FileUploadZone({
   attachments,
   onChange,
@@ -44,6 +70,7 @@ export function FileUploadZone({
   compact = false,
   listenGlobalPaste = false,
   onUploadingChange,
+  hidePreview = false,
 }: {
   attachments: AttachmentItem[];
   onChange: (next: AttachmentItem[]) => void;
@@ -51,6 +78,7 @@ export function FileUploadZone({
   compact?: boolean;
   listenGlobalPaste?: boolean;
   onUploadingChange?: (busy: boolean) => void;
+  hidePreview?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -119,9 +147,7 @@ export function FileUploadZone({
           const ext = f.type.split("/")[1] || "png";
           const namedFile = new File(
             [f],
-            f.name && f.name !== "image.png"
-              ? f.name
-              : `screenshot-${Date.now()}-${i + 1}.${ext}`,
+            f.name && f.name !== "image.png" ? f.name : `screenshot-${Date.now()}-${i + 1}.${ext}`,
             { type: f.type || "image/png" }
           );
           files.push(namedFile);
@@ -156,9 +182,7 @@ export function FileUploadZone({
   const removeAttachment = (id: string) => {
     const target = attachments.find((a) => a.id === id);
     if (target?.key) {
-      fetch(`/api/files/${encodeURIComponent(target.key)}`, { method: "DELETE" }).catch(
-        () => {}
-      );
+      fetch(`/api/files/${encodeURIComponent(target.key)}`, { method: "DELETE" }).catch(() => {});
     }
     onChange(attachments.filter((a) => a.id !== id));
   };
@@ -184,13 +208,9 @@ export function FileUploadZone({
       }
       const replacement: AttachmentItem = data.attachments[0];
       if (original.key) {
-        fetch(`/api/files/${encodeURIComponent(original.key)}`, { method: "DELETE" }).catch(
-          () => {}
-        );
+        fetch(`/api/files/${encodeURIComponent(original.key)}`, { method: "DELETE" }).catch(() => {});
       }
-      onChange(
-        attachmentsRef.current.map((a) => (a.id === original.id ? replacement : a))
-      );
+      onChange(attachmentsRef.current.map((a) => (a.id === original.id ? replacement : a)));
       setAnnotatingAttachment(null);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "บันทึกรูปที่วาดไม่สำเร็จ");
@@ -203,246 +223,239 @@ export function FileUploadZone({
   const imageAttachments = attachments.filter(isSafeImageAttachment);
   const docAttachments = attachments.filter((a) => !isSafeImageAttachment(a));
 
-  return (
-    <div className="space-y-3" onPaste={handlePaste}>
-      <div
-        tabIndex={0}
-        data-testid="multi-file-dropzone"
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragging(false);
-          if (e.dataTransfer.files?.length) {
-            void handleFiles(e.dataTransfer.files);
+  const dropHandlers = {
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+    },
+    onDragLeave: () => setIsDragging(false),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      if (e.dataTransfer.files?.length) {
+        void handleFiles(e.dataTransfer.files);
+      }
+    },
+  };
+
+  const hiddenInputs = (
+    <>
+      <input
+        ref={imageInputRef}
+        type="file"
+        multiple
+        data-testid="image-upload-input"
+        accept="image/*"
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            void handleFiles(e.target.files);
           }
         }}
-        className={`rounded-xl border-2 border-dashed transition focus:border-emerald-400 focus:outline-none ${
-          isDragging
-            ? "border-emerald-400 bg-emerald-500/15"
-            : "border-emerald-500/35 bg-slate-950/80 hover:border-emerald-500/60"
-        } ${compact ? "p-3" : "p-4"}`}
-      >
-        {/* Hidden Input 1: Multiple Images */}
-        <input
-          ref={imageInputRef}
-          type="file"
-          multiple
-          data-testid="image-upload-input"
-          accept="image/*"
-          onChange={(e) => {
-            if (e.target.files?.length) {
-              void handleFiles(e.target.files);
-            }
-          }}
-          className="hidden"
-        />
+        className="hidden"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        data-testid="file-upload-input"
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            void handleFiles(e.target.files);
+          }
+        }}
+        className="hidden"
+      />
+    </>
+  );
 
-        {/* Hidden Input 2: Multiple Any Files */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          data-testid="file-upload-input"
-          onChange={(e) => {
-            if (e.target.files?.length) {
-              void handleFiles(e.target.files);
-            }
-          }}
-          className="hidden"
-        />
-
-        <div className="flex flex-col gap-3">
+  return (
+    <div className="space-y-3" onPaste={handlePaste}>
+      {compact ? (
+        <div
+          tabIndex={0}
+          data-testid="multi-file-dropzone"
+          {...dropHandlers}
+          className={`flex flex-wrap items-center gap-2 rounded-xl border border-dashed px-2.5 py-2 transition focus:outline-none ${
+            isDragging ? "border-emerald-400/60 bg-emerald-400/[0.06]" : "border-line hover:border-line-strong"
+          }`}
+        >
+          {hiddenInputs}
+          <button
+            type="button"
+            data-testid="select-multiple-images-btn"
+            onClick={() => imageInputRef.current?.click()}
+            className="btn btn-ghost btn-xs"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            แนบรูป
+          </button>
+          <button
+            type="button"
+            data-testid="select-multiple-files-btn"
+            onClick={() => fileInputRef.current?.click()}
+            className="btn btn-ghost btn-xs"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            แนบไฟล์ / PDF
+          </button>
+          <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-subtle">
+            {isUploading ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                กำลังอัปโหลด {uploadingCount} ไฟล์…
+              </>
+            ) : (
+              <span className="hidden sm:inline">หรือลากไฟล์มาวาง · Ctrl+V วางรูปแคปหน้าจอ</span>
+            )}
+          </span>
+        </div>
+      ) : (
+        <div
+          tabIndex={0}
+          data-testid="multi-file-dropzone"
+          {...dropHandlers}
+          className={`rounded-2xl border border-dashed p-5 text-center transition focus:outline-none ${
+            isDragging
+              ? "border-emerald-400/60 bg-emerald-400/[0.06]"
+              : "border-line-strong bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.03]"
+          }`}
+        >
+          {hiddenInputs}
           <div
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-3 cursor-pointer"
+            className="mx-auto mb-3 flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-line bg-white/[0.04] text-fg-muted"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-              {isUploading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <UploadCloud className="h-5 w-5" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-white">
-                {isUploading
-                  ? `กำลังอัปโหลด ${uploadingCount} ไฟล์...`
-                  : "คลิกเลือกไฟล์, ลากวางหลายไฟล์พร้อมกัน หรือกด Ctrl+V วางภาพแคปหน้าจอได้ทันที"}
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">
-                แนบรูปภาพได้หลายรูป (PNG, JPG, WEBP) และแนบไฟล์เอกสารได้หลายไฟล์ (PDF, Excel, Word, CSV, ZIP, TXT) ไม่จำกัดจำนวน
-              </p>
-            </div>
+            {isUploading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-emerald-400" />
+            ) : (
+              <UploadCloud className="h-5 w-5" />
+            )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[13px] font-medium text-fg">
+            {isUploading ? `กำลังอัปโหลด ${uploadingCount} ไฟล์…` : "ลากรูปหรือไฟล์มาวางที่นี่"}
+          </p>
+          <p className="mt-1 text-xs text-fg-subtle">
+            หรือกด <span className="kbd">Ctrl</span> + <span className="kbd">V</span> เพื่อวางภาพแคปหน้าจอ · แนบได้หลายไฟล์ (รูป, PDF, Excel, Word)
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button
               type="button"
               data-testid="select-multiple-images-btn"
               onClick={() => imageInputRef.current?.click()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-xs font-bold text-white shadow hover:bg-emerald-500 cursor-pointer"
+              className="btn btn-secondary btn-sm"
             >
-              <ImageIcon className="h-4 w-4" />
-              <span>เลือกรูปภาพ (หลายรูป)</span>
+              <ImageIcon className="h-3.5 w-3.5" />
+              เลือกรูปภาพ
             </button>
-
             <button
               type="button"
               data-testid="select-multiple-files-btn"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/15 px-3.5 text-xs font-bold text-sky-200 hover:bg-sky-500/25 cursor-pointer"
+              className="btn btn-secondary btn-sm"
             >
-              <FileText className="h-4 w-4" />
-              <span>แนบไฟล์ PDF / เอกสาร / อื่นๆ (หลายไฟล์)</span>
+              <Paperclip className="h-3.5 w-3.5" />
+              เลือกไฟล์ / PDF
             </button>
-
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 text-[11px] font-medium text-slate-300">
-              <ClipboardPaste className="h-3.5 w-3.5 text-emerald-400" /> กด Ctrl+V วางรูปแคปหน้าจอได้เรื่อยๆ
-            </span>
           </div>
         </div>
-      </div>
-
-      {errorMsg && (
-        <p className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-          {errorMsg}
-        </p>
       )}
 
-      {/* Attached Summary & Preview Grid */}
-      {attachments.length > 0 && (
-        <div
-          data-testid="uploaded-attachments-list"
-          className="rounded-xl border border-slate-800 bg-slate-950/90 p-3.5 space-y-3"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
-              <span>
-                ไฟล์ที่แนบแล้วทั้งหมด {attachments.length} รายการ (รูปภาพ {imageAttachments.length} รูป • ไฟล์{" "}
-                {docAttachments.length} ไฟล์)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/20 cursor-pointer"
-              >
-                <Plus className="h-3 w-3" /> เพิ่มรูปอีก
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20 cursor-pointer"
-              >
-                <Plus className="h-3 w-3" /> เพิ่มไฟล์อีก
-              </button>
-            </div>
-          </div>
+      {errorMsg && (
+        <p className="rounded-lg border border-rose-400/25 bg-rose-400/[0.08] px-3 py-2 text-xs text-rose-200">{errorMsg}</p>
+      )}
 
-          {/* 1. Image Thumbnail Grid */}
+      {!hidePreview && attachments.length > 0 && (
+        <div data-testid="uploaded-attachments-list" className="space-y-2.5">
+          <p className="text-xs text-fg-subtle">
+            แนบแล้ว {attachments.length} ไฟล์
+            {imageAttachments.length > 0 && ` · รูปภาพ ${imageAttachments.length}`}
+            {docAttachments.length > 0 && ` · เอกสาร ${docAttachments.length}`}
+          </p>
+
           {imageAttachments.length > 0 && (
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
-              {imageAttachments.map((img, idx) => {
-                const url = fileUrl(img);
-                return (
-                  <div
-                    key={img.id}
-                    data-testid={`uploaded-image-card-${idx}`}
-                    className="group relative flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900"
+              {imageAttachments.map((img, idx) => (
+                <div
+                  key={img.id}
+                  data-testid={`uploaded-image-card-${idx}`}
+                  className="group relative overflow-hidden rounded-xl border border-line bg-black/30"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIndex(idx)}
+                    className="relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden"
+                    title="คลิกเพื่อขยายดูรูปใหญ่"
                   >
-                    <button
-                      type="button"
-                      onClick={() => setPreviewIndex(idx)}
-                      className="relative h-28 w-full overflow-hidden bg-slate-950 text-left cursor-zoom-in"
-                      title="คลิกเพื่อขยายดูรูปใหญ่"
-                    >
-                      <img
-                        src={url}
-                        alt={img.name}
-                        className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                      />
-                      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded bg-slate-950/80 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                        <Maximize2 className="h-2.5 w-2.5 text-emerald-400" /> ขยาย
-                      </span>
-                    </button>
+                    <img
+                      src={fileUrl(img)}
+                      alt={img.name}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                    />
+                  </button>
 
+                  <button
+                    type="button"
+                    data-testid={`remove-attachment-${img.id}`}
+                    onClick={() => removeAttachment(img.id)}
+                    className="absolute top-1.5 right-1.5 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-black/70 text-white/90 backdrop-blur transition hover:bg-rose-600"
+                    title="ลบรูปนี้"
+                    aria-label={`ลบรูป ${img.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+
+                  <div className="flex items-center gap-1.5 border-t border-line px-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted" title={img.name}>
+                      {img.name}
+                    </span>
                     <button
                       type="button"
                       data-testid={`annotate-image-btn-${idx}`}
                       onClick={() => setAnnotatingAttachment(img)}
-                      className="absolute bottom-9 right-1.5 inline-flex h-6 items-center gap-1 rounded-md border border-rose-400/60 bg-rose-600/95 px-2 text-[10px] font-bold text-white shadow hover:bg-rose-500 cursor-pointer"
+                      className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-rose-500/15 px-1.5 text-[11px] font-medium text-rose-200 ring-1 ring-rose-400/25 transition ring-inset hover:bg-rose-500/25"
                       title="วาดวงกลม / ลูกศรชี้จุด / เบลอข้อมูลสำคัญ"
                     >
-                      <Pencil className="h-2.5 w-2.5" />
-                      <span>วาดชี้จุด/เบลอ</span>
+                      <Pencil className="h-3 w-3" />
+                      วาดชี้จุด
                     </button>
-
-                    <button
-                      type="button"
-                      data-testid={`remove-attachment-${img.id}`}
-                      onClick={() => removeAttachment(img.id)}
-                      className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-600/90 text-white shadow hover:bg-rose-500 cursor-pointer"
-                      title="ลบรูปนี้"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-
-                    <div className="flex items-center justify-between gap-1 px-2 py-1.5 text-[11px]">
-                      <span className="truncate font-medium text-slate-200">{img.name}</span>
-                      <span className="shrink-0 text-[10px] text-slate-400">
-                        {formatFileSize(img.size)}
-                      </span>
-                    </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
 
-          {/* 2. Document / Other Files List */}
           {docAttachments.length > 0 && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {docAttachments.map((att, idx) => {
-                const url = fileUrl(att);
-                return (
-                  <div
-                    key={att.id}
-                    data-testid={`uploaded-file-card-${idx}`}
-                    className="flex items-center justify-between gap-2.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+              {docAttachments.map((att, idx) => (
+                <div
+                  key={att.id}
+                  data-testid={`uploaded-file-card-${idx}`}
+                  className="flex items-center gap-2.5 rounded-xl border border-line bg-white/[0.02] px-2.5 py-2"
+                >
+                  <a
+                    href={fileUrl(att)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex min-w-0 flex-1 items-center gap-2.5"
                   >
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex min-w-0 flex-1 items-center gap-2.5 hover:text-sky-300"
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-sky-400">
-                        <FileText className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-slate-200">{att.name}</p>
-                        <p className="text-[11px] text-slate-400">
-                          ไฟล์แนบ • {formatFileSize(att.size)}
-                        </p>
-                      </div>
-                    </a>
-                    <button
-                      type="button"
-                      data-testid={`remove-attachment-${att.id}`}
-                      onClick={() => removeAttachment(att.id)}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-rose-500/15 hover:text-rose-300 cursor-pointer"
-                      title="ลบไฟล์แนบ"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
+                    <DocIcon doc={att} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] text-fg">{att.name}</span>
+                      <span className="block text-[11px] text-fg-subtle">{formatFileSize(att.size)}</span>
+                    </span>
+                  </a>
+                  <button
+                    type="button"
+                    data-testid={`remove-attachment-${att.id}`}
+                    onClick={() => removeAttachment(att.id)}
+                    className="btn btn-ghost btn-icon btn-xs hover:!text-rose-300"
+                    title="ลบไฟล์แนบ"
+                    aria-label={`ลบไฟล์ ${att.name}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -468,7 +481,13 @@ export function FileUploadZone({
   );
 }
 
-export function AttachmentGallery({ attachments }: { attachments: AttachmentItem[] }) {
+export function AttachmentGallery({
+  attachments,
+  onRemove,
+}: {
+  attachments: AttachmentItem[];
+  onRemove?: (attachment: AttachmentItem) => void;
+}) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [expandedPdfId, setExpandedPdfId] = useState<string | null>(null);
   const [expandedTextId, setExpandedTextId] = useState<string | null>(null);
@@ -478,10 +497,6 @@ export function AttachmentGallery({ attachments }: { attachments: AttachmentItem
   const docs = (attachments || []).filter((a) => !isSafeImageAttachment(a));
 
   if (images.length === 0 && docs.length === 0) return null;
-
-  const isPdfDoc = (doc: AttachmentItem) =>
-    doc.mimeType?.toLowerCase().includes("pdf") ||
-    doc.name.toLowerCase().endsWith(".pdf");
 
   const isTextPreviewable = (doc: AttachmentItem) => {
     const lower = doc.name.toLowerCase();
@@ -522,191 +537,173 @@ export function AttachmentGallery({ attachments }: { attachments: AttachmentItem
   };
 
   return (
-    <div className="space-y-3 pt-2" data-testid="attachment-gallery">
+    <div className="space-y-3" data-testid="attachment-gallery">
       {images.length > 0 && (
-        <div>
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
-            <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
-            <span>รูปภาพประกอบ ({images.length} รูป) • คลิกที่รูปเพื่อขยายดูภาพขนาดใหญ่</span>
-          </p>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {images.map((img, idx) => (
-              <div
-                key={img.id}
-                className="group relative flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-950 transition hover:border-emerald-500/50"
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          {images.map((img, idx) => (
+            <div
+              key={img.id}
+              className="group relative overflow-hidden rounded-xl border border-line bg-black/30 transition hover:border-line-strong"
+            >
+              <button
+                type="button"
+                data-testid="attachment-image-thumb"
+                onClick={() => setPreviewIndex(idx)}
+                title={`ขยายดูรูป ${img.name}`}
+                className="relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden focus:outline-none"
               >
+                <img
+                  src={fileUrl(img)}
+                  alt={img.name}
+                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                  <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-black/70 px-3 text-xs font-medium text-white backdrop-blur">
+                    <Maximize2 className="h-3.5 w-3.5" /> ขยายดู
+                  </span>
+                </span>
+              </button>
+              {onRemove && (
                 <button
                   type="button"
-                  data-testid="attachment-image-thumb"
-                  onClick={() => setPreviewIndex(idx)}
-                  title={`ขยายดูรูป ${img.name}`}
-                  className="relative h-32 w-full overflow-hidden text-left focus:outline-none cursor-zoom-in"
+                  onClick={() => onRemove(img)}
+                  className="absolute top-1.5 right-1.5 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-black/70 text-white/90 opacity-0 backdrop-blur transition group-hover:opacity-100 hover:bg-rose-600"
+                  title="ลบรูปนี้ออกจากเรื่อง"
+                  aria-label={`ลบรูป ${img.name}`}
                 >
-                  <img
-                    src={fileUrl(img)}
-                    alt={img.name}
-                    className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-x-0 top-0 flex h-full items-center justify-center bg-slate-950/55 opacity-0 transition group-hover:opacity-100">
-                    <span className="inline-flex h-7 items-center gap-1 rounded-md bg-slate-900/90 px-2.5 text-xs font-semibold text-white">
-                      <Maximize2 className="h-3.5 w-3.5 text-emerald-400" /> ขยายดูรูปใหญ่
-                    </span>
-                  </div>
+                  <X className="h-3.5 w-3.5" />
                 </button>
-                <div className="flex items-center justify-between gap-1 bg-slate-900/95 px-2.5 py-1.5 text-[11px]">
-                  <span className="truncate text-slate-200">{img.name}</span>
-                  <a
-                    href={fileUrl(img)}
-                    download={img.name}
-                    onClick={(e) => e.stopPropagation()}
-                    className="shrink-0 inline-flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 hover:bg-slate-700"
-                    title="บันทึกรูปภาพลงเครื่อง"
-                  >
-                    <Download className="h-2.5 w-2.5" /> บันทึกรูป
-                  </a>
-                </div>
+              )}
+              <div className="flex items-center gap-1.5 border-t border-line px-2.5 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted" title={img.name}>
+                  {img.name}
+                </span>
+                <a
+                  href={fileUrl(img)}
+                  download={img.name}
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex shrink-0 items-center rounded-md p-1 text-fg-subtle transition hover:bg-white/10 hover:text-fg"
+                  title="บันทึกรูปภาพลงเครื่อง"
+                  aria-label={`ดาวน์โหลด ${img.name}`}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </a>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
 
       {docs.length > 0 && (
         <div className="space-y-2">
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-300">
-            <FileText className="h-3.5 w-3.5 text-sky-400" />
-            <span>ไฟล์เอกสาร & PDF แนบ ({docs.length} ไฟล์) • เปิดดูบนหน้าจอหรือดาวน์โหลดได้ทันที</span>
-          </p>
-          <div className="space-y-2">
-            {docs.map((doc, idx) => {
-              const isPdf = isPdfDoc(doc);
-              const isText = !isPdf && isTextPreviewable(doc);
-              const isPdfOpen = expandedPdfId === doc.id;
-              const isTextOpen = expandedTextId === doc.id;
+          {docs.map((doc, idx) => {
+            const isPdf = isPdfDoc(doc);
+            const isText = !isPdf && isTextPreviewable(doc);
+            const isPdfOpen = expandedPdfId === doc.id;
+            const isTextOpen = expandedTextId === doc.id;
 
-              return (
-                <div
-                  key={doc.id}
-                  data-testid={`gallery-doc-card-${idx}`}
-                  className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 space-y-2.5"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <div
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-[10px] font-bold ${
-                          isPdf
-                            ? "border-rose-500/40 bg-rose-500/15 text-rose-300"
-                            : "border-sky-500/40 bg-sky-500/15 text-sky-300"
-                        }`}
-                      >
-                        {isPdf ? "PDF" : <FileText className="h-4 w-4" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-bold text-white">{doc.name}</p>
-                        <p className="text-[11px] text-slate-400">
-                          {isPdf ? "เอกสาร PDF" : "ไฟล์เอกสารแนบ"} • {formatFileSize(doc.size)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {isPdf && (
-                        <button
-                          type="button"
-                          data-testid={`preview-pdf-inline-btn-${idx}`}
-                          onClick={() =>
-                            setExpandedPdfId((prev) => (prev === doc.id ? null : doc.id))
-                          }
-                          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition cursor-pointer ${
-                            isPdfOpen
-                              ? "border-amber-400 bg-amber-500/20 text-amber-200"
-                              : "border-emerald-500/50 bg-emerald-600 text-white hover:bg-emerald-500"
-                          }`}
-                        >
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          <span>{isPdfOpen ? "ซ่อนหน้าต่าง PDF" : "เปิดดู PDF บนหน้าจอ"}</span>
-                        </button>
-                      )}
-
-                      {isText && (
-                        <button
-                          type="button"
-                          data-testid={`preview-doc-inline-btn-${idx}`}
-                          onClick={() => void toggleTextPreview(doc)}
-                          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition cursor-pointer ${
-                            isTextOpen
-                              ? "border-amber-400 bg-amber-500/20 text-amber-200"
-                              : "border-cyan-500/45 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
-                          }`}
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>{isTextOpen ? "ซ่อนเนื้อหาไฟล์" : "เปิดอ่านเนื้อหาไฟล์"}</span>
-                        </button>
-                      )}
-
-                      <a
-                        href={fileUrl(doc)}
-                        target="_blank"
-                        rel="noreferrer"
-                        data-testid={`open-doc-tab-btn-${idx}`}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 text-xs font-medium text-slate-200 hover:bg-slate-700"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 text-sky-400" />
-                        <span>เปิดแท็บใหม่</span>
-                      </a>
-
-                      <a
-                        href={fileUrl(doc)}
-                        download={doc.name}
-                        data-testid={`download-doc-btn-${idx}`}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 text-xs font-semibold text-sky-200 hover:bg-sky-500/25"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        <span>ดาวน์โหลด</span>
-                      </a>
-                    </div>
+            return (
+              <div
+                key={doc.id}
+                data-testid={`gallery-doc-card-${idx}`}
+                className="overflow-hidden rounded-xl border border-line bg-white/[0.02]"
+              >
+                <div className="flex flex-wrap items-center gap-3 p-2.5 pr-3">
+                  <DocIcon doc={doc} className="h-10 w-10" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium text-fg">{doc.name}</p>
+                    <p className="text-[11px] text-fg-subtle">
+                      {isPdf ? "เอกสาร PDF" : "ไฟล์แนบ"} · {formatFileSize(doc.size)}
+                    </p>
                   </div>
 
-                  {/* Inline Embedded PDF Viewer */}
-                  {isPdf && isPdfOpen && (
-                    <div
-                      data-testid={`inline-pdf-viewer-${idx}`}
-                      className="overflow-hidden rounded-lg border border-emerald-500/40 bg-slate-950"
-                    >
-                      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-1.5 text-[11px] text-emerald-300">
-                        <span>📄 กำลังแสดงไฟล์ PDF: {doc.name}</span>
-                        <a
-                          href={fileUrl(doc)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline hover:text-white"
-                        >
-                          ขยายเต็มหน้าจอ
-                        </a>
-                      </div>
-                      <iframe
-                        src={fileUrl(doc)}
-                        title={doc.name}
-                        sandbox=""
-                        data-testid={`inline-pdf-iframe-${idx}`}
-                        className="h-[440px] w-full bg-white"
-                      />
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {isPdf && (
+                      <button
+                        type="button"
+                        data-testid={`preview-pdf-inline-btn-${idx}`}
+                        onClick={() => setExpandedPdfId((prev) => (prev === doc.id ? null : doc.id))}
+                        className={`btn btn-xs ${isPdfOpen ? "bg-white/[0.08] text-fg" : "btn-secondary"}`}
+                      >
+                        {isPdfOpen ? <ChevronDown className="h-3.5 w-3.5 rotate-180" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                        <span>{isPdfOpen ? "ซ่อน PDF" : "เปิดดู PDF"}</span>
+                      </button>
+                    )}
 
-                  {/* Inline Text / CSV / Log Reader */}
-                  {isText && isTextOpen && (
-                    <pre
-                      data-testid={`inline-doc-reader-${idx}`}
-                      className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-cyan-500/35 bg-slate-950 p-3 font-mono text-xs text-slate-200 leading-relaxed"
+                    {isText && (
+                      <button
+                        type="button"
+                        data-testid={`preview-doc-inline-btn-${idx}`}
+                        onClick={() => void toggleTextPreview(doc)}
+                        className={`btn btn-xs ${isTextOpen ? "bg-white/[0.08] text-fg" : "btn-secondary"}`}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        <span>{isTextOpen ? "ซ่อนเนื้อหา" : "อ่านเนื้อหา"}</span>
+                      </button>
+                    )}
+
+                    <a
+                      href={fileUrl(doc)}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-testid={`open-doc-tab-btn-${idx}`}
+                      className="btn btn-ghost btn-icon btn-xs"
+                      title="เปิดในแท็บใหม่"
+                      aria-label="เปิดในแท็บใหม่"
                     >
-                      {textPreviewCache[doc.id] || "กำลังโหลดเนื้อหาไฟล์..."}
-                    </pre>
-                  )}
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+
+                    <a
+                      href={fileUrl(doc)}
+                      download={doc.name}
+                      data-testid={`download-doc-btn-${idx}`}
+                      className="btn btn-ghost btn-icon btn-xs"
+                      title="ดาวน์โหลด"
+                      aria-label="ดาวน์โหลด"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+
+                    {onRemove && (
+                      <button
+                        type="button"
+                        onClick={() => onRemove(doc)}
+                        className="btn btn-ghost btn-icon btn-xs hover:!text-rose-300"
+                        title="ลบไฟล์นี้ออกจากเรื่อง"
+                        aria-label={`ลบไฟล์ ${doc.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Inline Embedded PDF Viewer */}
+                {isPdf && isPdfOpen && (
+                  <div data-testid={`inline-pdf-viewer-${idx}`} className="border-t border-line bg-black/40">
+                    <iframe
+                      src={fileUrl(doc)}
+                      title={doc.name}
+                      sandbox=""
+                      data-testid={`inline-pdf-iframe-${idx}`}
+                      className="h-[460px] w-full bg-white"
+                    />
+                  </div>
+                )}
+
+                {/* Inline Text / CSV / Log Reader */}
+                {isText && isTextOpen && (
+                  <pre
+                    data-testid={`inline-doc-reader-${idx}`}
+                    className="max-h-64 overflow-y-auto border-t border-line bg-black/30 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-fg-muted"
+                  >
+                    {textPreviewCache[doc.id] || "กำลังโหลดเนื้อหาไฟล์…"}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -754,7 +751,7 @@ export function ImageLightbox({
   }, [go, hasMany, onClose]);
 
   const navBtn =
-    "absolute top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-slate-100 shadow-lg transition hover:border-emerald-400 hover:text-emerald-300 cursor-pointer";
+    "absolute top-1/2 inline-flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/90 shadow-lg backdrop-blur transition hover:bg-black/80";
 
   return createPortal(
     <div
@@ -763,50 +760,41 @@ export function ImageLightbox({
       aria-modal="true"
       aria-label={`ดูรูป ${img.name}`}
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex flex-col bg-black/90 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex animate-fade-in flex-col bg-black/90 backdrop-blur-md"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/90 px-4"
+        className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           {hasMany && (
-            <span
-              data-testid="lightbox-counter"
-              className="inline-flex h-6 shrink-0 items-center rounded-full bg-slate-800 px-2.5 font-mono text-xs leading-none text-slate-200"
-            >
+            <span data-testid="lightbox-counter" className="count">
               {index + 1} / {images.length}
             </span>
           )}
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium leading-tight text-slate-100">{img.name}</p>
-            <p className="text-[11px] leading-tight text-slate-400">
-              {formatFileSize(img.size)} • อัปโหลดโดย {img.uploadedBy}
+            <p className="truncate text-sm font-medium text-white">{img.name}</p>
+            <p className="text-[11px] text-white/50">
+              {formatFileSize(img.size)} · อัปโหลดโดย {img.uploadedBy}
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <a
-            href={fileUrl(img)}
-            download={img.name}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 text-xs font-medium text-slate-200 hover:bg-slate-700"
-          >
-            <Download className="h-3.5 w-3.5" /> ดาวน์โหลด
+        <div className="flex shrink-0 items-center gap-1.5">
+          <a href={fileUrl(img)} download={img.name} className="btn btn-secondary btn-sm">
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">ดาวน์โหลด</span>
           </a>
-          <a
-            href={fileUrl(img)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 text-xs font-medium text-slate-200 hover:bg-slate-700"
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> เปิดแท็บใหม่
+          <a href={fileUrl(img)} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">เปิดแท็บใหม่</span>
           </a>
           <button
             type="button"
             data-testid="lightbox-close-btn"
             onClick={onClose}
             title="ปิด (Esc)"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer"
+            aria-label="ปิด"
+            className="btn btn-ghost btn-icon btn-sm text-white/80"
           >
             <X className="h-4 w-4" />
           </button>
@@ -819,7 +807,7 @@ export function ImageLightbox({
           alt={img.name}
           data-testid="lightbox-image"
           onClick={(e) => e.stopPropagation()}
-          className="max-h-full max-w-full rounded-lg bg-slate-950 object-contain shadow-2xl"
+          className="max-h-full max-w-full animate-scale-in rounded-lg object-contain shadow-2xl"
         />
         {hasMany && (
           <>
@@ -851,8 +839,8 @@ export function ImageLightbox({
         )}
       </div>
 
-      <p className="pb-3 text-center text-[11px] text-slate-500">
-        กด Esc หรือคลิกพื้นที่ว่างเพื่อปิด{hasMany ? " • ใช้ปุ่มลูกศร ← → เพื่อเลื่อนดูรูปถัดไป" : ""}
+      <p className="pb-4 text-center text-xs text-white/40">
+        กด Esc หรือคลิกพื้นที่ว่างเพื่อปิด{hasMany ? " · ใช้ปุ่มลูกศร ← → เพื่อดูรูปถัดไป" : ""}
       </p>
     </div>,
     document.body
@@ -868,6 +856,17 @@ interface AnnotationShape {
   endX: number;
   endY: number;
 }
+
+const ANNOTATOR_TOOLS: Array<{
+  key: AnnotatorTool;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { key: "circle", label: "วงกลม", hint: "ล้อมจุดที่มีปัญหา", icon: Circle },
+  { key: "arrow", label: "ลูกศร", hint: "ชี้จุดที่ต้องการให้แก้", icon: MoveUpRight },
+  { key: "blur", label: "เบลอ", hint: "ซ่อนข้อมูลลับลูกค้า", icon: EyeOff },
+];
 
 export function ImageAnnotatorModal({
   attachment,
@@ -898,11 +897,7 @@ export function ImageAnnotatorModal({
   }, [attachment]);
 
   const drawShape = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      img: HTMLImageElement,
-      s: AnnotationShape
-    ) => {
+    (ctx: CanvasRenderingContext2D, img: HTMLImageElement, s: AnnotationShape) => {
       ctx.save();
       if (s.tool === "circle") {
         const cx = (s.startX + s.endX) / 2;
@@ -1028,75 +1023,56 @@ export function ImageAnnotatorModal({
   return createPortal(
     <div
       data-testid="image-annotator-modal"
-      className="fixed inset-0 z-[70] flex flex-col bg-slate-950/95 backdrop-blur-md"
+      className="fixed inset-0 z-[70] flex animate-fade-in flex-col bg-canvas/95 backdrop-blur-md"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-900 px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/25 ring-inset">
             <Pencil className="h-4 w-4" />
           </span>
-          <div>
-            <h3 className="text-sm font-bold text-white">
-              วาดชี้จุดเกิดปัญหา / เบลอข้อมูลสำคัญบนรูปภาพ
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              เลือกเครื่องมือด้านล่างแล้วลากเมาส์บนรูปภาพได้เลย ทีมพัฒนาจะเห็นจุดที่วงไว้ทันที
-            </p>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-fg">วาดชี้จุดปัญหา / เบลอข้อมูลสำคัญ</h3>
+            <p className="truncate text-xs text-fg-subtle">เลือกเครื่องมือ แล้วลากเมาส์บนรูปได้เลย</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="annotator-tool-circle"
-            onClick={() => setTool("circle")}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition cursor-pointer ${
-              tool === "circle"
-                ? "border-rose-400 bg-rose-600 text-white shadow"
-                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-            }`}
-          >
-            <Circle className="h-3.5 w-3.5" />
-            <span>1. วงกลมสีแดง (ล้อมจุดที่พัง)</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="annotator-tool-arrow"
-            onClick={() => setTool("arrow")}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition cursor-pointer ${
-              tool === "arrow"
-                ? "border-rose-400 bg-rose-600 text-white shadow"
-                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-            }`}
-          >
-            <MoveUpRight className="h-3.5 w-3.5" />
-            <span>2. ลูกศรชี้จุด</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="annotator-tool-blur"
-            onClick={() => setTool("blur")}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition cursor-pointer ${
-              tool === "blur"
-                ? "border-amber-400 bg-amber-600 text-white shadow"
-                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-            }`}
-          >
-            <EyeOff className="h-3.5 w-3.5" />
-            <span>3. เบลอข้อมูลลับลูกค้า</span>
-          </button>
+          <div className="flex items-center gap-1 rounded-xl border border-line bg-black/20 p-1">
+            {ANNOTATOR_TOOLS.map((t) => {
+              const Icon = t.icon;
+              const active = tool === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  data-testid={`annotator-tool-${t.key}`}
+                  onClick={() => setTool(t.key)}
+                  title={t.hint}
+                  aria-pressed={active}
+                  className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition ${
+                    active ? "bg-rose-500 text-white shadow" : "text-fg-muted hover:bg-white/[0.06] hover:text-fg"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"
             data-testid="annotator-undo-btn"
             disabled={shapes.length === 0}
             onClick={() => setShapes((prev) => prev.slice(0, -1))}
-            className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            className="btn btn-ghost btn-sm"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            <span>ย้อนกลับ</span>
+            ย้อนกลับ
+          </button>
+
+          <button type="button" data-testid="annotator-cancel-btn" onClick={onClose} className="btn btn-secondary btn-sm">
+            ยกเลิก
           </button>
 
           <button
@@ -1104,20 +1080,10 @@ export function ImageAnnotatorModal({
             data-testid="annotator-save-btn"
             disabled={saving}
             onClick={handleConfirmSave}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white shadow hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
+            className="btn btn-primary btn-sm"
           >
             <Check className="h-4 w-4" />
-            <span>{saving ? "กำลังบันทึก..." : "บันทึกรูปที่วาด"}</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="annotator-cancel-btn"
-            onClick={onClose}
-            className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 text-xs font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-            <span>ยกเลิก</span>
+            {saving ? "กำลังบันทึก…" : "บันทึกรูปที่วาด"}
           </button>
         </div>
       </div>
@@ -1130,7 +1096,7 @@ export function ImageAnnotatorModal({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          className="max-h-[78vh] max-w-full cursor-crosshair rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
+          className="max-h-[78vh] max-w-full cursor-crosshair rounded-xl border border-line bg-surface shadow-pop"
         />
       </div>
     </div>,

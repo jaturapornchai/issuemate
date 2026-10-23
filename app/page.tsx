@@ -2,29 +2,28 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Activity,
-  FolderKanban,
   Plus,
   Search,
-  Table2,
-  Kanban,
-  Terminal,
   RefreshCw,
-  FolderPlus,
   Layers,
-  CheckCircle2,
-  Rocket,
-  Filter,
-  Command,
-  FilterX,
   X,
   Eye,
-  Wrench,
-  XCircle,
-  HelpCircle,
-  BookmarkCheck,
-  ShieldCheck,
-  Menu,
+  ListFilter,
+  FilterX,
+  Command,
+  PlugZap,
+  PanelLeft,
+  LayoutList,
+  SquareKanban,
+  ChartNoAxesColumn,
+  Vote,
+  MessageCircleQuestion,
+  CheckCircle2,
+  CircleAlert,
+  ChevronRight,
+  FolderPlus,
+  Loader2,
+  ChevronDown,
 } from "lucide-react";
 import type {
   ProjectRecord,
@@ -36,28 +35,35 @@ import type {
   IssuePriority,
   AttachmentRecord,
 } from "@/lib/types";
-import {
-  type AuthUser,
-  getUserProjectPermission,
-  PROJECT_PERMISSION_CONFIG,
-} from "@/lib/permissions";
+import { type AuthUser, getUserProjectPermission } from "@/lib/permissions";
 import {
   MonitorDashboardView,
   type MonitorDrillDown,
 } from "@/components/MonitorDashboardView";
-import { STATUS_CONFIG, TYPE_CONFIG, PRIORITY_CONFIG } from "@/components/ui/Badges";
+import {
+  STATUS_CONFIG,
+  TYPE_CONFIG,
+  TYPE_ORDER,
+  PRIORITY_CONFIG,
+  PRIORITY_ORDER,
+  PERMISSION_UI,
+  TONE,
+  Avatar,
+  type Tone,
+} from "@/components/ui/Badges";
 import { IssuesTableView } from "@/components/IssuesTableView";
 import { KanbanBoardView } from "@/components/KanbanBoardView";
 import { IdeasRoadmapView } from "@/components/IdeasRoadmapView";
 import { IssueDetailDrawer } from "@/components/IssueDetailDrawer";
 import { CommandPaletteModal } from "@/components/CommandPaletteModal";
-import { GoogleLoginModal, GoogleIcon } from "@/components/GoogleLoginModal";
+import { GoogleLoginModal } from "@/components/GoogleLoginModal";
 import {
   CreateProjectModal,
   CreateIssueModal,
   AiMcpGuideModal,
 } from "@/components/Modals";
 import { APP_VERSION, DEPLOYED_AT_TH } from "@/lib/version";
+import { LogoMark } from "@/components/ui/Logo";
 
 type ProjectWithCounts = ProjectRecord & { openCount: number; totalCount: number };
 type ViewMode = "monitor" | "table" | "kanban" | "roadmap";
@@ -69,10 +75,87 @@ const STATUS_FILTER_LABEL: Record<
   Exclude<IssueStatusFilter, IssueStatus | "all">,
   string
 > = {
-  pending_review: "รอ Antigravity รีวิว (open + reviewing)",
-  active: "กำลังดำเนินการใน Pipeline",
-  overdue: "เลยกำหนด SLA",
+  pending_review: "รอตรวจสอบ",
+  active: "กำลังดำเนินการ",
+  overdue: "เลยกำหนด",
 };
+
+const VIEWS: Array<{
+  key: ViewMode;
+  label: string;
+  hint: string;
+  testId: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { key: "table", label: "รายการทั้งหมด", hint: "ปัญหาและคำถามทั้งหมด", testId: "nav-table-btn", icon: LayoutList },
+  { key: "kanban", label: "บอร์ดติดตามงาน", hint: "ดูงานตามขั้นตอน", testId: "nav-kanban-btn", icon: SquareKanban },
+  { key: "monitor", label: "ภาพรวม", hint: "สถิติและความคืบหน้า", testId: "nav-monitor-btn", icon: ChartNoAxesColumn },
+  { key: "roadmap", label: "โหวต & แผนงาน", hint: "จัดลำดับความสำคัญ", testId: "nav-roadmap-btn", icon: Vote },
+];
+
+const STATUS_TABS: Array<{
+  key: IssueStatusFilter;
+  label: string;
+  hint: string;
+  testId: string;
+  tone?: Tone;
+  isActive: (f: IssueStatusFilter) => boolean;
+  count: (s: MonitorStats | null, fallback: number) => number;
+}> = [
+  {
+    key: "all",
+    label: "ทั้งหมด",
+    hint: "แสดงทุกสถานะ",
+    testId: "filter-tab-all",
+    isActive: (f) => f === "all",
+    count: (s, fallback) => s?.totalIssues ?? fallback,
+  },
+  {
+    key: "pending_review",
+    label: "รอตรวจสอบ",
+    hint: "รอตรวจสอบ + กำลังตรวจสอบ",
+    testId: "filter-tab-pending-review",
+    tone: "amber",
+    isActive: (f) => f === "pending_review" || f === "open" || f === "reviewing",
+    count: (s) => (s?.openIssues ?? 0) + (s?.reviewingIssues ?? 0),
+  },
+  {
+    key: "ready_to_fix",
+    label: "รอแก้ไข",
+    hint: STATUS_CONFIG.ready_to_fix.description,
+    testId: "filter-tab-ready-to-fix",
+    tone: "sky",
+    isActive: (f) => f === "ready_to_fix",
+    count: (s) => s?.readyToFixIssues ?? 0,
+  },
+  {
+    key: "fixing",
+    label: "กำลังแก้ไข",
+    hint: STATUS_CONFIG.fixing.description,
+    testId: "filter-tab-fixing",
+    tone: "blue",
+    isActive: (f) => f === "fixing",
+    count: (s) => s?.fixingIssues ?? 0,
+  },
+  {
+    key: "deployed",
+    label: "เสร็จแล้ว",
+    hint: STATUS_CONFIG.deployed.description,
+    testId: "filter-tab-deployed",
+    tone: "emerald",
+    isActive: (f) => f === "deployed",
+    count: (s) => s?.deployedIssues ?? 0,
+  },
+  {
+    key: "wont_fix",
+    label: "ไม่แก้ไข",
+    hint: STATUS_CONFIG.wont_fix.description,
+    testId: "filter-tab-wont-fix",
+    tone: "zinc",
+    isActive: (f) => f === "wont_fix",
+    count: (s) => s?.wontFixIssues ?? 0,
+  },
+];
 
 export default function IssueMateAppPage() {
   const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
@@ -100,6 +183,7 @@ export default function IssueMateAppPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(false);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState<boolean>(false);
   const [isCreateIssueOpen, setIsCreateIssueOpen] = useState<boolean>(false);
   const [createIssueInitialType, setCreateIssueInitialType] =
@@ -180,7 +264,6 @@ export default function IssueMateAppPage() {
       .then((r) => r.json())
       .then((d) => {
         setCurrentUser(d.user || null);
-        if (!d.user) setIsGoogleLoginOpen(true);
       })
       .catch(() => {})
       .finally(() => setAuthChecked(true));
@@ -216,7 +299,6 @@ export default function IssueMateAppPage() {
         url.searchParams.get("auth_error") || url.searchParams.get("google_auth_error");
       if (authError) {
         setAuthErrorNotice(authError);
-        setIsGoogleLoginOpen(true);
         url.searchParams.delete("auth_error");
         url.searchParams.delete("google_auth_error");
         window.history.replaceState({}, "", url.toString());
@@ -285,6 +367,7 @@ export default function IssueMateAppPage() {
       } finally {
         if (fetchId === latestFetchId.current && !opts?.silent) {
           setIsLoading(false);
+          setHasLoadedOnce(true);
         }
       }
     },
@@ -338,6 +421,7 @@ export default function IssueMateAppPage() {
         else if (isCreateProjectOpen) setIsCreateProjectOpen(false);
         else if (isAiMcpOpen) setIsAiMcpOpen(false);
         else if (selectedIssue) setSelectedIssue(null);
+        else if (isMobileSidebarOpen) setIsMobileSidebarOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -349,6 +433,7 @@ export default function IssueMateAppPage() {
     isCreateProjectOpen,
     isAiMcpOpen,
     selectedIssue,
+    isMobileSidebarOpen,
   ]);
 
   const handleSort = (field: string) => {
@@ -388,12 +473,12 @@ export default function IssueMateAppPage() {
     },
     typeFilter !== "all" && {
       key: "type",
-      label: `ประเภท: ${TYPE_CONFIG[typeFilter].label}`,
+      label: `ประเภท: ${TYPE_CONFIG[typeFilter].shortLabel}`,
       clear: () => setTypeFilter("all"),
     },
     priorityFilter !== "all" && {
       key: "priority",
-      label: `ความสำคัญ: ${PRIORITY_CONFIG[priorityFilter].label}`,
+      label: `ความเร่งด่วน: ${PRIORITY_CONFIG[priorityFilter].label}`,
       clear: () => setPriorityFilter("all"),
     },
     searchQuery.trim() && {
@@ -415,7 +500,7 @@ export default function IssueMateAppPage() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const errMsg = data.error || "อัปเดตข้อมูลไม่สำเร็จ";
-      showFeedback("error", `❌ อัปเดต #${code} ไม่สำเร็จ: ${errMsg}`);
+      showFeedback("error", `อัปเดต ${code} ไม่สำเร็จ: ${errMsg}`);
       throw new Error(errMsg);
     }
     if (data.issue) {
@@ -423,7 +508,7 @@ export default function IssueMateAppPage() {
         prev && prev.code === data.issue.code ? data.issue : prev
       );
     }
-    showFeedback("success", `✅ บันทึกการอัปเดตรายการ #${code} สำเร็จเรียบร้อยแล้ว`);
+    showFeedback("success", `บันทึกการอัปเดต ${code} เรียบร้อยแล้ว`);
     await fetchAllData();
   };
 
@@ -434,11 +519,11 @@ export default function IssueMateAppPage() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const errMsg = data.error || "ลบรายการไม่สำเร็จ";
-      showFeedback("error", `❌ ลบ #${code} ไม่สำเร็จ: ${errMsg}`);
+      showFeedback("error", `ลบ ${code} ไม่สำเร็จ: ${errMsg}`);
       throw new Error(errMsg);
     }
     setSelectedIssue(null);
-    showFeedback("success", `✅ ลบรายการ #${code} เรียบร้อยแล้ว`);
+    showFeedback("success", `ลบรายการ ${code} เรียบร้อยแล้ว`);
     await fetchAllData();
   };
 
@@ -463,7 +548,7 @@ export default function IssueMateAppPage() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const errMsg = data.error || "ส่งความคิดเห็นไม่สำเร็จ";
-      showFeedback("error", `❌ ส่งความคิดเห็นใน #${code} ไม่สำเร็จ: ${errMsg}`);
+      showFeedback("error", `ส่งข้อความใน ${code} ไม่สำเร็จ: ${errMsg}`);
       throw new Error(errMsg);
     }
     if (data.issue) {
@@ -474,8 +559,8 @@ export default function IssueMateAppPage() {
     showFeedback(
       "success",
       options?.isResolution
-        ? `✅ ส่งคำตอบและปิดเรื่อง #${code} เรียบร้อยแล้ว`
-        : `✅ ส่งความคิดเห็น / คำตอบใน #${code} สำเร็จเรียบร้อยแล้ว`
+        ? `ส่งคำตอบและปิดเรื่อง ${code} เรียบร้อยแล้ว`
+        : `ส่งข้อความใน ${code} เรียบร้อยแล้ว`
     );
     await fetchAllData();
   };
@@ -490,10 +575,10 @@ export default function IssueMateAppPage() {
     });
     const data = await res.json();
     if (!res.ok) {
-      showFeedback("error", `❌ อัปโหลดไฟล์ไม่สำเร็จ: ${data.error || "เกิดข้อผิดพลาด"}`);
+      showFeedback("error", `อัปโหลดไฟล์ไม่สำเร็จ: ${data.error || "เกิดข้อผิดพลาด"}`);
       throw new Error(data.error || "อัปโหลดไฟล์ไม่สำเร็จ");
     }
-    showFeedback("success", `✅ อัปโหลดไฟล์ "${file.name}" สำเร็จแล้ว`);
+    showFeedback("success", `อัปโหลดไฟล์ "${file.name}" เรียบร้อยแล้ว`);
     return data.attachment;
   };
 
@@ -516,10 +601,10 @@ export default function IssueMateAppPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showFeedback("success", `✅ บันทึกคะแนนโหวต #${code} เรียบร้อยแล้ว`);
+        showFeedback("success", `บันทึกคะแนนโหวต ${code} เรียบร้อยแล้ว`);
         void fetchAllData();
       } else {
-        showFeedback("error", `❌ โหวต #${code} ไม่สำเร็จ: ${data.error || "ไม่มีสิทธิ์"}`);
+        showFeedback("error", `โหวต ${code} ไม่สำเร็จ: ${data.error || "ไม่มีสิทธิ์"}`);
       }
     } catch (err) {
       console.error("Upvote error:", err);
@@ -536,9 +621,9 @@ export default function IssueMateAppPage() {
         body: "{}",
       });
       if (res.ok) {
-        showFeedback("success", "✅ ล้างข้อมูล Issues ทั้งหมดและรีเซ็ตระบบเรียบร้อยแล้ว");
+        showFeedback("success", "ล้างข้อมูล Issues ทั้งหมดและรีเซ็ตระบบเรียบร้อยแล้ว");
       } else {
-        showFeedback("error", "❌ ล้างข้อมูลไม่สำเร็จ");
+        showFeedback("error", "ล้างข้อมูลไม่สำเร็จ");
       }
       await fetchAllData();
     } catch (err) {
@@ -608,644 +693,552 @@ export default function IssueMateAppPage() {
     0
   );
 
-  return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
-      {/* Mobile Sidebar Backdrop */}
-      {isMobileSidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/65 backdrop-blur-xs lg:hidden"
-          onClick={() => setIsMobileSidebarOpen(false)}
-        />
-      )}
+  const canCreateAnything =
+    activeProjectPermission !== "viewer" && activeProjectPermission !== "none";
+  const canReportIssue = canCreateAnything && activeProjectPermission !== "question_only";
+  const canUseMcp =
+    Boolean(currentUser?.isAdmin) ||
+    activeProjectPermission === "developer" ||
+    activeProjectPermission === "project_admin";
+  const activeView = VIEWS.find((v) => v.key === viewMode) || VIEWS[0];
+  const ActiveViewIcon = activeView.icon;
+  const showFilterToolbar = viewMode !== "monitor";
 
-      {/* Left Sidebar: Auto-Responsive (Slide-over on mobile/tablet, fixed on desktop) */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-60 xl:w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/95 transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
-          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Brand Header */}
-        <div className="flex h-14 items-center justify-between border-b border-slate-800 px-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400">
-              <Layers className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <h1 className="text-sm font-bold leading-none tracking-tight text-white">
-                IssueMate แจ้งปัญหา
-              </h1>
-              <p className="whitespace-nowrap text-[10px] font-medium leading-none text-emerald-400">
-                สอบถาม & ติดตามงานง่ายๆ
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsAiMcpOpen(true)}
-            data-testid="open-mcp-guide-btn"
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/15 px-2 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/25 cursor-pointer"
-            title="ตั้งค่าและสร้าง MCP Token สำหรับเชื่อมต่อ AI (Antigravity)"
-          >
-            <Terminal className="h-3 w-3" />
-            <span>เชื่อมต่อ AI</span>
-          </button>
+  /* ---------------- Signed-out / loading states ---------------- */
+
+  if (!authChecked) {
+    return (
+      <div className="flex h-dvh w-full flex-col items-center justify-center gap-4 bg-canvas">
+        <LogoMark className="h-12 w-12" />
+        <div className="flex items-center gap-2 text-sm text-fg-muted">
+          <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+          กำลังโหลด IssueMate…
         </div>
+      </div>
+    );
+  }
 
-        {/* Primary Action: Submit Issue or Ask Question */}
-        <div className="p-3 border-b border-slate-800/80 space-y-2">
-          {rememberedSpecificProject && (
-            <div
-              data-testid="remembered-project-banner"
-              className="flex items-center justify-between gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-2.5 py-1.5 text-[11px]"
-            >
-              <div className="flex min-w-0 items-center gap-1.5">
-                <BookmarkCheck className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                <span className="truncate text-emerald-200">
-                  จำโปรเจกต์ล่าสุด:{" "}
-                  <strong className="font-mono text-white">
-                    {rememberedSpecificProject.key}
-                  </strong>
-                </span>
-              </div>
-              {selectedProjectKey === "ALL" && (
-                <button
-                  type="button"
-                  data-testid="resume-last-project-btn"
-                  onClick={() => selectProject(rememberedSpecificProject.key)}
-                  className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/30 cursor-pointer"
-                >
-                  เปิดใช้ต่อ
-                </button>
-              )}
-            </div>
-          )}
+  if (!currentUser) {
+    return (
+      <GoogleLoginModal
+        open
+        variant="page"
+        user={null}
+        onClose={() => setAuthErrorNotice(null)}
+        onUserUpdated={(u) => setCurrentUser(u)}
+        initialError={authErrorNotice}
+      />
+    );
+  }
 
-          {activeProjectPermission === "viewer" ? (
-            <div
-              data-testid="sidebar-viewer-only-notice"
-              className="rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-2 text-[11px] text-slate-300"
-            >
-              สิทธิ์ของคุณในโปรเจกต์นี้คือ{" "}
-              <strong className="text-white">ดูข้อมูลอย่างเดียว</strong>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-1.5">
-              {activeProjectPermission !== "question_only" && (
-                <button
-                  type="button"
-                  data-testid="open-create-issue-btn"
-                  onClick={() => openCreateModalWithType("bug")}
-                  className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 cursor-pointer"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>แจ้งปัญหา / เพิ่มรายการใหม่</span>
-                </button>
-              )}
+  /* ---------------- Signed-in app shell ---------------- */
 
-              <button
-                type="button"
-                data-testid="quick-ask-question-btn"
-                onClick={() => openCreateModalWithType("question")}
-                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-pink-500/40 bg-pink-500/15 px-3 text-xs font-semibold text-pink-200 transition hover:bg-pink-500/25 cursor-pointer"
-              >
-                <HelpCircle className="h-4 w-4 text-pink-400" />
-                <span>สอบถาม / ตั้งคำถามการใช้งาน</span>
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            data-testid="open-command-palette-btn"
-            onClick={() => setIsCommandPaletteOpen(true)}
-            className="flex h-8 w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/90 px-2.5 text-[11px] text-slate-400 transition hover:border-slate-700 hover:text-slate-200 cursor-pointer"
-          >
-            <span className="flex items-center gap-1.5">
-              <Command className="h-3.5 w-3.5 text-emerald-400" />
-              <span>ค้นหาด่วน / สลับหน้าจอ</span>
-            </span>
-            <kbd className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
-              Ctrl+K
-            </kbd>
-          </button>
-        </div>
-
-        {/* Main View Switcher in Sidebar */}
-        <div className="px-3 pt-3 pb-2 space-y-1">
-          <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            เลือกมุมมองการใช้งาน
+  const sidebar = (
+    <aside
+      className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col border-r border-line bg-surface transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+        isMobileSidebarOpen ? "translate-x-0 shadow-pop" : "-translate-x-full"
+      }`}
+    >
+      {/* Brand */}
+      <div className="flex h-16 shrink-0 items-center gap-3 px-4">
+        <LogoMark />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] leading-tight font-semibold tracking-tight text-fg">IssueMate</p>
+          <p className="truncate text-[11px] leading-tight text-fg-subtle">
+            แจ้งปัญหา · สอบถาม · ติดตามงาน
           </p>
-          <button
-            type="button"
-            data-testid="nav-table-btn"
-            onClick={() => setViewMode("table")}
-            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
-              viewMode === "table"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                : "text-slate-300 hover:bg-slate-800/70"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Table2 className="h-4 w-4 text-sky-400" />
-              <span>รายการแจ้งปัญหา & คำถามทั้งหมด</span>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="nav-kanban-btn"
-            onClick={() => setViewMode("kanban")}
-            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
-              viewMode === "kanban"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                : "text-slate-300 hover:bg-slate-800/70"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Kanban className="h-4 w-4 text-purple-400" />
-              <span>บอร์ดติดตามความคืบหน้า (6 ขั้น)</span>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="nav-monitor-btn"
-            onClick={() => setViewMode("monitor")}
-            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
-              viewMode === "monitor"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                : "text-slate-300 hover:bg-slate-800/70"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-400" />
-              <span>ภาพรวมสถิติ & ความคืบหน้า</span>
-            </span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          </button>
-
-          <button
-            type="button"
-            data-testid="nav-roadmap-btn"
-            onClick={() => setViewMode("roadmap")}
-            className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-xs font-medium transition cursor-pointer ${
-              viewMode === "roadmap"
-                ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                : "text-slate-300 hover:bg-slate-800/70"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Rocket className="h-4 w-4 text-amber-400" />
-              <span>โหวตความต้องการ & แผนงาน</span>
-            </span>
-          </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setIsMobileSidebarOpen(false)}
+          aria-label="ปิดเมนู"
+          className="btn btn-ghost btn-icon btn-sm lg:hidden"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
-        {/* Projects List */}
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              โปรเจกต์ของคุณ ({visibleProjects.length})
-            </span>
+      {/* Quick search */}
+      <div className="px-3">
+        <button
+          type="button"
+          data-testid="open-command-palette-btn"
+          onClick={() => {
+            setIsMobileSidebarOpen(false);
+            setIsCommandPaletteOpen(true);
+          }}
+          className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-line bg-black/20 px-2.5 text-[13px] text-fg-subtle transition hover:border-line-strong hover:text-fg-muted"
+        >
+          <Search className="h-4 w-4" />
+          <span className="flex-1 text-left">ค้นหาด่วน / คำสั่ง</span>
+          <span className="kbd">
+            <Command className="mr-0.5 h-2.5 w-2.5" />K
+          </span>
+        </button>
+      </div>
+
+      {/* Views */}
+      <nav className="space-y-0.5 px-3 pt-5" aria-label="มุมมอง">
+        <p className="section-label pb-1.5">เมนูหลัก</p>
+        {VIEWS.map((v) => {
+          const Icon = v.icon;
+          const active = viewMode === v.key;
+          return (
+            <button
+              key={v.key}
+              type="button"
+              data-testid={v.testId}
+              aria-current={active ? "page" : undefined}
+              onClick={() => {
+                setViewMode(v.key);
+                setIsMobileSidebarOpen(false);
+              }}
+              className={`group flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition ${
+                active
+                  ? "bg-white/[0.07] text-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.05)]"
+                  : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+              }`}
+            >
+              <Icon
+                className={`h-4 w-4 shrink-0 transition ${
+                  active ? "text-emerald-400" : "text-fg-subtle group-hover:text-fg-muted"
+                }`}
+              />
+              <span className="truncate">{v.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Projects */}
+      <div className="mt-5 flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between px-3 pb-1.5">
+          <p className="section-label">โปรเจกต์ของคุณ</p>
+          {currentUser.isAdmin && (
             <button
               type="button"
               data-testid="open-create-project-btn"
               onClick={() => setIsCreateProjectOpen(true)}
-              className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/15 cursor-pointer"
+              className="btn btn-ghost btn-xs"
               title="สร้างโปรเจกต์ใหม่"
             >
               <FolderPlus className="h-3.5 w-3.5" />
-              <span>เพิ่มโปรเจกต์</span>
+              <span>เพิ่ม</span>
             </button>
-          </div>
-
-          <div className="space-y-1">
-            <button
-              type="button"
-              data-testid="project-item-ALL"
-              onClick={() => selectProject("ALL")}
-              className={`flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-xs font-medium transition cursor-pointer ${
-                selectedProjectKey === "ALL"
-                  ? "bg-slate-800 text-white border border-slate-700"
-                  : "text-slate-300 hover:bg-slate-800/60"
-              }`}
-            >
-              <span className="flex items-center gap-2 truncate">
-                <FolderKanban className="h-4 w-4 text-emerald-400 shrink-0" />
-                <span className="truncate">ดูรวมทุกโปรเจกต์</span>
-              </span>
-              <span className="rounded-full bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-slate-300">
-                {totalOpenAllProjects}
-              </span>
-            </button>
-
-            {visibleProjects.map((proj) => {
-              const isSelected = selectedProjectKey === proj.key;
-              const isLastRemembered = lastSpecificProjectKey === proj.key;
-              const perm = currentUser
-                ? getUserProjectPermission(currentUser, proj.key)
-                : null;
-              return (
-                <button
-                  key={proj.key}
-                  type="button"
-                  data-testid={`project-item-${proj.key}`}
-                  onClick={() => selectProject(proj.key)}
-                  className={`flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-xs font-medium transition cursor-pointer ${
-                    isSelected
-                      ? "bg-emerald-500/15 text-white border border-emerald-500/40"
-                      : "text-slate-300 hover:bg-slate-800/60"
-                  }`}
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: proj.color }}
-                    />
-                    <span className="shrink-0 font-mono text-[11px] font-bold text-slate-300">
-                      {proj.key}
-                    </span>
-                    <span className="truncate">{proj.name}</span>
-                  </div>
-                  <div className="ml-1 flex shrink-0 items-center gap-1">
-                    {isLastRemembered && (
-                      <span
-                        title="โปรเจกต์ล่าสุดที่ใช้งาน"
-                        className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-semibold text-emerald-300"
-                      >
-                        ล่าสุด
-                      </span>
-                    )}
-                    {perm && perm !== "none" && !currentUser?.isAdmin && (
-                      <span
-                        title={`สิทธิ์ของคุณ: ${PROJECT_PERMISSION_CONFIG[perm].label}`}
-                        className="rounded bg-slate-800 px-1 py-0.5 text-[9px] text-slate-300"
-                      >
-                        {PROJECT_PERMISSION_CONFIG[perm].shortLabel}
-                      </span>
-                    )}
-                    <span className="rounded-full bg-slate-950 px-2 py-0.5 font-mono text-[11px] text-emerald-400">
-                      {proj.openCount}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Footer Storage & Active Permission Status */}
-        <div className="border-t border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-400 space-y-1">
-          {currentUser && activeProjectPermission !== "none" && (
-            <div
-              data-testid="sidebar-user-permission-indicator"
-              className="flex items-center justify-between pb-1 border-b border-slate-800/80"
-            >
-              <span className="inline-flex items-center gap-1 text-slate-300">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                สิทธิ์ ({effectiveDefaultProjectKey}):
-              </span>
-              <span className="font-semibold text-emerald-300">
-                {PROJECT_PERMISSION_CONFIG[activeProjectPermission].shortLabel}
-              </span>
-            </div>
           )}
-          <div className="flex items-center justify-between">
-            <span>ระบบจัดเก็บไฟล์:</span>
-            <span className="font-mono text-emerald-400">PDF / รูปภาพ / เอกสาร</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>ผู้ช่วยดูแลระบบ:</span>
-            <span className="font-mono text-cyan-300">ทีมงาน & Antigravity</span>
-          </div>
-          <div
-            data-testid="app-version-deploy-info"
-            className="mt-1.5 flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/90 px-2 py-1 text-[10px]"
-          >
-            <span className="font-mono font-bold text-emerald-400">{APP_VERSION}</span>
-            <span className="font-mono text-slate-300">Deploy: {DEPLOYED_AT_TH}</span>
-          </div>
         </div>
-      </aside>
 
-      {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Global Action Response Banner (Success / Error Feedback) */}
-        {actionFeedback && (
+        {rememberedSpecificProject && (
           <div
-            data-testid="global-action-feedback"
-            className={`flex h-9 shrink-0 items-center justify-between px-5 text-xs font-semibold transition-all ${
-              actionFeedback.type === "success"
-                ? "border-b border-emerald-500/40 bg-emerald-950/80 text-emerald-200"
-                : "border-b border-rose-500/40 bg-rose-950/80 text-rose-200"
-            }`}
+            data-testid="remembered-project-banner"
+            className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-emerald-400/15 bg-emerald-400/[0.06] px-2.5 py-2 text-xs"
+            title="ระบบจำโปรเจกต์ล่าสุดไว้ให้ เพื่อกันการแจ้งเรื่องผิดโปรเจกต์"
           >
-            <span>{actionFeedback.message}</span>
-            <button
-              type="button"
-              onClick={() => setActionFeedback(null)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-black/20 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: rememberedSpecificProject.color }}
+            />
+            <span className="min-w-0 flex-1 truncate text-emerald-100/90">
+              เรื่องใหม่จะส่งเข้า{" "}
+              <strong className="font-semibold text-white">{rememberedSpecificProject.key}</strong>
+            </span>
+            {selectedProjectKey === "ALL" && (
+              <button
+                type="button"
+                data-testid="resume-last-project-btn"
+                onClick={() => selectProject(rememberedSpecificProject.key)}
+                className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 font-semibold text-emerald-300 hover:bg-emerald-400/15"
+              >
+                เปิด
+                <ChevronRight className="h-3 w-3" />
+              </button>
+            )}
           </div>
         )}
 
-        {/* Top Toolbar (Auto-Responsive Baseline aligned 2-row header) */}
-        <header className="flex flex-col border-b border-slate-800 bg-gradient-to-r from-slate-900/95 via-slate-900/85 to-slate-900/95 px-3 sm:px-5 py-2 gap-2">
-          {/* Row 1: Quick Project Switcher & Title on Left, Ask Question + Report Issue + Search + Google Login on Right */}
-          <div className="flex flex-wrap min-h-9 items-center justify-between gap-2">
-            <div className="flex min-h-9 min-w-0 items-center gap-2">
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
+          <button
+            type="button"
+            data-testid="project-item-ALL"
+            onClick={() => {
+              selectProject("ALL");
+              setIsMobileSidebarOpen(false);
+            }}
+            className={`flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition ${
+              selectedProjectKey === "ALL"
+                ? "bg-white/[0.07] font-medium text-fg"
+                : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+            }`}
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <Layers className="h-3.5 w-3.5 text-fg-subtle" />
+            </span>
+            <span className="flex-1 truncate text-left">ทุกโปรเจกต์</span>
+            <span className="count" title="เรื่องที่ยังไม่ปิด">
+              {totalOpenAllProjects}
+            </span>
+          </button>
+
+          {visibleProjects.map((proj) => {
+            const isSelected = selectedProjectKey === proj.key;
+            const perm = getUserProjectPermission(currentUser, proj.key);
+            const restrictedPerm =
+              !currentUser.isAdmin && (perm === "viewer" || perm === "question_only") ? perm : null;
+            const PermIcon = restrictedPerm ? PERMISSION_UI[restrictedPerm].icon : null;
+            return (
+              <button
+                key={proj.key}
+                type="button"
+                data-testid={`project-item-${proj.key}`}
+                onClick={() => {
+                  selectProject(proj.key);
+                  setIsMobileSidebarOpen(false);
+                }}
+                title={`${proj.key} — ${proj.name}`}
+                className={`flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition ${
+                  isSelected
+                    ? "bg-white/[0.07] font-medium text-fg"
+                    : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+                }`}
+              >
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  <span
+                    className="h-2.5 w-2.5 rounded-[4px] ring-2 ring-black/30"
+                    style={{ backgroundColor: proj.color }}
+                  />
+                </span>
+                <span className="flex-1 truncate text-left">{proj.name}</span>
+                {PermIcon && restrictedPerm && (
+                  <span title={`สิทธิ์ของคุณ: ${PERMISSION_UI[restrictedPerm].label}`}>
+                    <PermIcon className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
+                  </span>
+                )}
+                <span className={`count ${proj.openCount > 0 && isSelected ? "bg-emerald-400/15 text-emerald-200" : ""}`}>
+                  {proj.openCount}
+                </span>
+              </button>
+            );
+          })}
+
+          {visibleProjects.length === 0 && hasLoadedOnce && (
+            <p className="px-2.5 py-3 text-xs leading-relaxed text-fg-subtle">
+              ยังไม่มีโปรเจกต์ที่คุณเข้าถึงได้ — ติดต่อผู้ดูแลระบบเพื่อขอสิทธิ์
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 space-y-2 border-t border-line p-3">
+        {canUseMcp && (
+          <button
+            type="button"
+            data-testid="open-mcp-guide-btn"
+            onClick={() => {
+              setIsMobileSidebarOpen(false);
+              setIsAiMcpOpen(true);
+            }}
+            className="group flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-gradient-to-r from-sky-400/[0.07] to-violet-400/[0.07] px-2.5 py-2 text-left transition hover:border-line-strong"
+            title="สร้าง MCP Token เพื่อให้ AI (Antigravity / Claude Code / Codex) ดึงงานไปแก้ไข"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-400/15 text-sky-300">
+              <PlugZap className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-fg">เชื่อมต่อ AI</span>
+              <span className="block truncate text-[11px] text-fg-subtle">MCP Token สำหรับทีมพัฒนา</span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-fg-subtle transition group-hover:translate-x-0.5" />
+          </button>
+        )}
+
+        {activeProjectPermission !== "none" && (
+          <div
+            data-testid="sidebar-user-permission-indicator"
+            className="flex items-center justify-between gap-2 px-1 text-xs"
+          >
+            <span className="truncate text-fg-subtle">สิทธิ์ใน {effectiveDefaultProjectKey}</span>
+            <span className={`inline-flex shrink-0 items-center gap-1 font-medium ${TONE[PERMISSION_UI[activeProjectPermission].tone].text}`}>
+              {React.createElement(PERMISSION_UI[activeProjectPermission].icon, { className: "h-3.5 w-3.5" })}
+              {PERMISSION_UI[activeProjectPermission].shortLabel}
+            </span>
+          </div>
+        )}
+
+        <div
+          data-testid="app-version-deploy-info"
+          className="flex items-center justify-between gap-2 px-1 text-[11px] text-fg-subtle"
+          title={`เวอร์ชัน ${APP_VERSION} · อัปเดตระบบล่าสุด ${DEPLOYED_AT_TH}`}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="font-mono">{APP_VERSION}</span>
+          </span>
+          <span className="truncate">อัปเดต {DEPLOYED_AT_TH}</span>
+        </div>
+      </div>
+    </aside>
+  );
+
+  return (
+    <div className="flex h-dvh w-full overflow-hidden bg-canvas text-fg">
+      {/* Mobile Sidebar Backdrop */}
+      {isMobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 animate-fade-in bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      {sidebar}
+
+      {/* Main Content Area */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Top bar */}
+        <header className="flex h-16 shrink-0 items-center gap-2 border-b border-line px-3 sm:gap-3 sm:px-5">
+          <button
+            type="button"
+            data-testid="mobile-sidebar-toggle-btn"
+            onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+            className="btn btn-secondary btn-icon lg:hidden"
+            aria-label="เปิดเมนู"
+            title="เปิดเมนูและรายชื่อโปรเจกต์"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+
+          {/* Breadcrumb: project switcher / current view */}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div className="relative min-w-0 shrink">
+              <span
+                className="pointer-events-none absolute top-1/2 left-3 h-2.5 w-2.5 -translate-y-1/2 rounded-[4px]"
+                style={{ backgroundColor: currentProject?.color || "#6d7787" }}
+              />
+              <select
+                value={selectedProjectKey}
+                data-testid="header-project-select"
+                onChange={(e) => selectProject(e.target.value)}
+                aria-label="เลือกโปรเจกต์"
+                title="สลับโปรเจกต์ (ระบบจะจำโปรเจกต์ที่เลือกไว้ให้อัตโนมัติ)"
+                className="h-9 w-full max-w-[18rem] min-w-0 cursor-pointer appearance-none truncate [field-sizing:content] rounded-lg border border-transparent bg-transparent pr-7 pl-8 text-sm font-semibold text-fg transition hover:border-line hover:bg-white/[0.04] focus:border-emerald-400/50 focus:outline-none"
+              >
+                <option value="ALL">ทุกโปรเจกต์</option>
+                {visibleProjects.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.name} · {p.key}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            </div>
+            <ChevronRight className="hidden h-4 w-4 shrink-0 text-fg-subtle/60 sm:block" />
+            <h1
+              data-testid="header-title"
+              className="hidden min-w-0 items-center gap-1.5 truncate text-sm font-medium text-fg-muted sm:flex"
+            >
+              <ActiveViewIcon className="h-4 w-4 shrink-0 text-fg-subtle" />
+              <span className="truncate">{activeView.label}</span>
+            </h1>
+          </div>
+
+          {/* Search (desktop) */}
+          <div className="relative hidden w-52 items-center md:flex xl:w-64">
+            <Search className="pointer-events-none absolute left-3 h-4 w-4 text-fg-subtle" />
+            <input
+              type="text"
+              data-testid="search-issues-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="ค้นหารหัส หรือหัวข้อเรื่อง…"
+              className="input h-9 pr-8 pl-9"
+            />
+            {searchQuery && (
               <button
                 type="button"
-                data-testid="mobile-sidebar-toggle-btn"
-                onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:border-emerald-500/50 lg:hidden cursor-pointer"
-                title="เปิดเมนูโปรเจกต์"
+                onClick={() => setSearchQuery("")}
+                data-testid="clear-search-btn"
+                title="ล้างคำค้นหา"
+                className="absolute right-1.5 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-white/10 hover:text-fg"
               >
-                <Menu className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
+            )}
+          </div>
 
-              <div className="flex h-9 items-center gap-1.5">
-                <span className="text-[11px] font-medium text-slate-400 whitespace-nowrap hidden xl:inline">
-                  โปรเจกต์ที่ทำงานอยู่:
-                </span>
-                <select
-                  value={selectedProjectKey}
-                  data-testid="header-project-select"
-                  onChange={(e) => selectProject(e.target.value)}
-                  className="h-8 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-2.5 font-mono text-xs font-bold text-emerald-300 focus:border-emerald-400 focus:outline-none cursor-pointer"
-                  title="สลับโปรเจกต์ (ระบบจะจำโปรเจกต์ที่เลือกไว้ให้อัตโนมัติ)"
+          <button
+            type="button"
+            onClick={() => void fetchAllData()}
+            className="btn btn-ghost btn-icon hidden sm:inline-flex"
+            title="รีเฟรชข้อมูล (ระบบอัปเดตให้อัตโนมัติทุก 8 วินาที)"
+            aria-label="รีเฟรชข้อมูล"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin text-emerald-400" : ""}`} />
+          </button>
+
+          {activeProjectPermission === "viewer" ? (
+            <span
+              data-testid="sidebar-viewer-only-notice"
+              className="pill bg-white/[0.04] text-fg-muted ring-line"
+              title="สิทธิ์ของคุณในโปรเจกต์นี้คือดูข้อมูลอย่างเดียว จึงไม่สามารถแจ้งเรื่องใหม่ได้"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">ดูอย่างเดียว</span>
+            </span>
+          ) : (
+            canCreateAnything && (
+              <>
+                <button
+                  type="button"
+                  data-testid="quick-ask-question-btn"
+                  onClick={() => openCreateModalWithType("question")}
+                  className="btn btn-secondary px-2.5 sm:px-3.5"
+                  title="ถามคำถามการใช้งาน ขอคู่มือ หรือขอคำแนะนำ"
                 >
-                  <option value="ALL" className="bg-slate-900 text-white">
-                    ทุกโปรเจกต์รวมกัน ({totalOpenAllProjects})
-                  </option>
-                  {visibleProjects.map((p) => (
-                    <option
-                      key={p.key}
-                      value={p.key}
-                      className="bg-slate-900 text-white"
+                  <MessageCircleQuestion className="h-4 w-4 text-sky-300" />
+                  <span className="hidden sm:inline">ถามคำถาม</span>
+                </button>
+                {canReportIssue && (
+                  <button
+                    type="button"
+                    data-testid="new-issue-btn"
+                    onClick={() => openCreateModalWithType("bug")}
+                    className="btn btn-primary px-3"
+                    title="แจ้งปัญหา ขอฟีเจอร์ หรือแจ้งเรื่องด่วน"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={2.5} />
+                    <span>แจ้งปัญหา</span>
+                  </button>
+                )}
+              </>
+            )
+          )}
+
+          <button
+            type="button"
+            data-testid="open-google-login-btn"
+            onClick={() => setIsGoogleLoginOpen(true)}
+            className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-line bg-white/[0.03] py-0.5 pr-0.5 pl-0.5 transition hover:border-line-strong hover:bg-white/[0.06] xl:pr-3"
+            title="บัญชีของฉันและสิทธิ์การใช้งาน"
+          >
+            <Avatar name={currentUser.name} src={currentUser.picture} />
+            <span className="hidden max-w-[140px] truncate text-[13px] font-medium text-fg xl:inline">
+              {currentUser.name}
+            </span>
+          </button>
+        </header>
+
+        {/* Filter toolbar */}
+        {showFilterToolbar && (
+          <div className="shrink-0 space-y-2 border-b border-line px-3 py-2.5 sm:px-5">
+            {/* Mobile search */}
+            <div className="relative flex items-center md:hidden">
+              <Search className="pointer-events-none absolute left-3 h-4 w-4 text-fg-subtle" />
+              <input
+                type="text"
+                data-testid="search-issues-input-mobile"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ค้นหารหัส หรือหัวข้อเรื่อง…"
+                className="input h-9 pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                role="tablist"
+                aria-label="กรองตามสถานะ"
+                className="-mx-1 flex max-w-full items-center gap-0.5 overflow-x-auto px-1"
+              >
+                {STATUS_TABS.map((tab) => {
+                  const active = tab.isActive(statusFilter);
+                  const count = tab.count(monitorStats, issues.length);
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      data-testid={tab.testId}
+                      title={tab.hint}
+                      onClick={() => setStatusFilter(tab.key)}
+                      className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-[13px] whitespace-nowrap transition ${
+                        active
+                          ? "bg-white/[0.08] font-medium text-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.06)]"
+                          : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+                      }`}
                     >
-                      {p.key} — {p.name} ({p.openCount})
+                      {tab.tone && <span className={`h-2 w-2 rounded-full ${TONE[tab.tone].dot}`} />}
+                      <span>{tab.label}</span>
+                      <span className={`text-xs tabular-nums ${active ? "text-fg-muted" : "text-fg-subtle"}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="filter-type-question-pill"
+                  aria-pressed={typeFilter === "question"}
+                  onClick={() =>
+                    setTypeFilter((prev) => (prev === "question" ? "all" : "question"))
+                  }
+                  className={`btn btn-sm ${
+                    typeFilter === "question"
+                      ? "border border-sky-400/40 bg-sky-400/15 text-sky-100"
+                      : "btn-secondary"
+                  }`}
+                  title="แสดงเฉพาะคำถาม"
+                >
+                  <MessageCircleQuestion className="h-3.5 w-3.5 text-sky-300" />
+                  <span>เฉพาะคำถาม</span>
+                  <span className="text-fg-subtle tabular-nums">{monitorStats?.byType?.question ?? 0}</span>
+                </button>
+
+                <select
+                  value={typeFilter}
+                  data-testid="type-filter-select"
+                  onChange={(e) => setTypeFilter(e.target.value as IssueType | "all")}
+                  aria-label="กรองตามประเภท"
+                  className="select h-8 w-auto text-xs"
+                >
+                  <option value="all">ทุกประเภท</option>
+                  {TYPE_ORDER.map((t) => (
+                    <option key={t} value={t}>
+                      {TYPE_CONFIG[t].label}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={priorityFilter}
+                  data-testid="priority-filter-select"
+                  onChange={(e) => setPriorityFilter(e.target.value as IssuePriority | "all")}
+                  aria-label="กรองตามความเร่งด่วน"
+                  className="select h-8 w-auto text-xs"
+                >
+                  <option value="all">ทุกความเร่งด่วน</option>
+                  {PRIORITY_ORDER.map((p) => (
+                    <option key={p} value={p}>
+                      {PRIORITY_CONFIG[p].label} — {PRIORITY_CONFIG[p].hint}
                     </option>
                   ))}
                 </select>
               </div>
-
-              <h2
-                className="truncate text-sm font-bold leading-none text-white"
-                data-testid="header-title"
-              >
-                {selectedProjectKey === "ALL"
-                  ? "ศูนย์รับแจ้งปัญหา สอบถามการใช้งาน และติดตามการแก้ไข"
-                  : currentProject?.name}
-              </h2>
-
-              {rememberedSpecificProject && (
-                <span
-                  data-testid="remembered-project-badge"
-                  className="hidden 2xl:inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-300"
-                >
-                  <BookmarkCheck className="h-3 w-3" />
-                  จำโปรเจกต์ล่าสุด: {rememberedSpecificProject.key}
-                </span>
-              )}
-
-              <span
-                data-testid="header-version-badge"
-                className="hidden lg:inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2.5 font-mono text-[10px] font-semibold text-cyan-300"
-                title={`เวอร์ชัน ${APP_VERSION} · วันเวลา Deploy ล่าสุด: ${DEPLOYED_AT_TH}`}
-              >
-                {APP_VERSION} · Deploy: {DEPLOYED_AT_TH}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap min-h-9 shrink-0 items-center gap-1.5 sm:gap-2">
-              {activeProjectPermission !== "viewer" && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="header-ask-question-btn"
-                    onClick={() => openCreateModalWithType("question")}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-pink-500/40 bg-pink-500/15 px-3 text-xs font-bold text-pink-200 transition hover:bg-pink-500/25 cursor-pointer whitespace-nowrap"
-                  >
-                    <HelpCircle className="h-4 w-4 text-pink-400" />
-                    <span>สอบถาม / ตั้งคำถาม</span>
-                  </button>
-
-                  {activeProjectPermission !== "question_only" && (
-                    <button
-                      type="button"
-                      data-testid="new-issue-btn"
-                      onClick={() => openCreateModalWithType("bug")}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white shadow-xs transition hover:bg-emerald-500 cursor-pointer whitespace-nowrap"
-                    >
-                      <Plus className="h-4 w-4" />
-                      <span>แจ้งปัญหา</span>
-                    </button>
-                  )}
-                </>
-              )}
-
-              {/* Search Box */}
-              <div className="relative flex h-9 items-center">
-                <Search className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  data-testid="search-issues-input"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="ค้นหารหัส, หัวข้อคำถาม, ปัญหาที่แจ้ง..."
-                  className="h-9 w-52 rounded-lg border border-slate-700 bg-slate-950 pl-8 pr-8 text-xs text-white placeholder:text-slate-500 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 lg:w-64"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    data-testid="clear-search-btn"
-                    title="ล้างคำค้นหา"
-                    className="absolute right-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void fetchAllData()}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300 cursor-pointer"
-                title="รีเฟรชข้อมูลล่าสุด"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${isLoading ? "animate-spin text-emerald-400" : ""}`}
-                />
-              </button>
-
-              {/* Login by Google / User Profile Button */}
-              <button
-                type="button"
-                data-testid="open-google-login-btn"
-                onClick={() => setIsGoogleLoginOpen(true)}
-                className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
-                  currentUser
-                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
-                    : "border-slate-700 bg-white text-slate-900 hover:bg-slate-100 shadow-xs"
-                }`}
-                title="เข้าสู่ระบบด้วย Google หรือจัดการสิทธิ์สมาชิกแต่ละโปรเจกต์"
-              >
-                {currentUser?.picture ? (
-                  <img
-                    src={currentUser.picture}
-                    alt={currentUser.name}
-                    className="h-5 w-5 rounded-full object-cover"
-                  />
-                ) : (
-                  <GoogleIcon className="h-4 w-4 shrink-0" />
-                )}
-                <span className="truncate max-w-[160px]">
-                  {currentUser ? currentUser.name : "เข้าสู่ระบบด้วย Google"}
-                </span>
-              </button>
             </div>
           </div>
-
-          {/* Row 2: 6-Stage Filter Tabs + Type & Priority Selectors */}
-          <div className="flex flex-wrap min-h-9 items-center justify-between gap-2">
-            <div className="inline-flex min-h-9 max-w-full items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 overflow-x-auto">
-              <button
-                type="button"
-                data-testid="filter-tab-all"
-                onClick={() => setStatusFilter("all")}
-                className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  statusFilter === "all"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                ทั้งหมด ({monitorStats?.totalIssues ?? issues.length})
-              </button>
-              <button
-                type="button"
-                data-testid="filter-tab-pending-review"
-                onClick={() => setStatusFilter("pending_review")}
-                className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  statusFilter === "pending_review" || statusFilter === "open"
-                    ? "bg-amber-500/20 text-amber-300"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Eye className="h-3.5 w-3.5 text-amber-400" />
-                <span>
-                  1-2. รอตรวจสอบ / รอคำตอบ (
-                  {(monitorStats?.openIssues ?? 0) +
-                    (monitorStats?.reviewingIssues ?? 0)}
-                  )
-                </span>
-              </button>
-              <button
-                type="button"
-                data-testid="filter-tab-ready-to-fix"
-                onClick={() => setStatusFilter("ready_to_fix")}
-                className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  statusFilter === "ready_to_fix"
-                    ? "bg-cyan-500/20 text-cyan-300"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Wrench className="h-3.5 w-3.5 text-cyan-400" />
-                <span>3. รอทีมงานแก้ไข ({monitorStats?.readyToFixIssues ?? 0})</span>
-              </button>
-              <button
-                type="button"
-                data-testid="filter-tab-deployed"
-                onClick={() => setStatusFilter("deployed")}
-                className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  statusFilter === "deployed"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span>
-                  5. แก้ไข/ตอบเรียบร้อย ({monitorStats?.deployedIssues ?? 0})
-                </span>
-              </button>
-              <button
-                type="button"
-                data-testid="filter-tab-wont-fix"
-                onClick={() => setStatusFilter("wont_fix")}
-                className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  statusFilter === "wont_fix"
-                    ? "bg-slate-700/60 text-slate-200"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <XCircle className="h-3.5 w-3.5 text-slate-400" />
-                <span>6. ปิดเรื่อง / ไม่ต้องแก้ ({monitorStats?.wontFixIssues ?? 0})</span>
-              </button>
-            </div>
-
-            <div className="flex flex-wrap min-h-9 shrink-0 items-center gap-1.5">
-              <button
-                type="button"
-                data-testid="filter-type-question-pill"
-                onClick={() =>
-                  setTypeFilter((prev) => (prev === "question" ? "all" : "question"))
-                }
-                className={`inline-flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition cursor-pointer whitespace-nowrap ${
-                  typeFilter === "question"
-                    ? "border-pink-500/50 bg-pink-500/20 text-pink-200"
-                    : "border-slate-700 bg-slate-950 text-slate-300 hover:border-pink-500/30 hover:text-pink-200"
-                }`}
-              >
-                <HelpCircle className="h-3.5 w-3.5 text-pink-400" />
-                <span>เฉพาะคำถาม ({monitorStats?.byType?.question ?? 0})</span>
-              </button>
-
-              <select
-                value={typeFilter}
-                data-testid="type-filter-select"
-                onChange={(e) => setTypeFilter(e.target.value as IssueType | "all")}
-                className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-              >
-                <option value="all">ทุกหัวข้อ (ปัญหา & คำถาม)</option>
-                <option value="question">สอบถาม / ตั้งคำถามการใช้งาน</option>
-                <option value="bug">แจ้งปัญหา / ทำงานผิดปกติ</option>
-                <option value="incident">ระบบล่ม / ใช้งานไม่ได้ด่วน</option>
-                <option value="feature">ขอเพิ่มฟีเจอร์ / ปรับปรุงระบบ</option>
-                <option value="performance">ระบบช้า / ค้าง</option>
-                <option value="deployment">อัปเดตระบบ / เซิร์ฟเวอร์</option>
-                <option value="security">ความปลอดภัย / สิทธิ์การใช้งาน</option>
-              </select>
-
-              <select
-                value={priorityFilter}
-                data-testid="priority-filter-select"
-                onChange={(e) => setPriorityFilter(e.target.value as IssuePriority | "all")}
-                className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
-              >
-                <option value="all">ทุกระดับความเร่งด่วน</option>
-                <option value="critical">เร่งด่วนมาก (กระทบงานทันที)</option>
-                <option value="high">สำคัญสูง (ควรรีบดูแล)</option>
-                <option value="medium">สำคัญปานกลาง (ทั่วไป)</option>
-                <option value="low">ไม่เร่งด่วน (สอบถาม/เสนอแนะ)</option>
-              </select>
-            </div>
-          </div>
-        </header>
+        )}
 
         {/* Active filter bar */}
-        {activeFilters.length > 0 && (
+        {showFilterToolbar && activeFilters.length > 0 && (
           <div
             data-testid="active-filter-bar"
-            className="flex h-10 shrink-0 items-center gap-2 border-b border-emerald-500/20 bg-emerald-950/25 px-5"
+            className="flex shrink-0 items-center gap-2 border-b border-line bg-emerald-400/[0.03] px-3 py-2 sm:px-5"
           >
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-300">
-              <Filter className="h-3.5 w-3.5" />
-              กำลังกรองข้อมูล
-            </span>
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <ListFilter className="h-4 w-4 shrink-0 text-emerald-400" />
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
               {activeFilters.map((f) => (
                 <button
                   key={f.key}
@@ -1253,21 +1246,21 @@ export default function IssueMateAppPage() {
                   onClick={f.clear}
                   data-testid={`active-filter-${f.key}`}
                   title="คลิกเพื่อยกเลิกเงื่อนไขนี้"
-                  className="inline-flex h-6 min-w-0 max-w-[260px] shrink items-center gap-1 rounded-full border border-emerald-500/30 bg-slate-900/90 px-2.5 text-[11px] leading-none text-slate-200 transition hover:border-rose-400/60 hover:text-rose-200 cursor-pointer"
+                  className="pill max-w-[260px] shrink-0 cursor-pointer bg-white/[0.05] text-fg ring-line transition hover:bg-rose-400/10 hover:text-rose-100 hover:ring-rose-400/30"
                 >
                   <span className="truncate">{f.label}</span>
-                  <X className="h-3 w-3 shrink-0 opacity-70" />
+                  <X className="h-3 w-3 shrink-0 opacity-60" />
                 </button>
               ))}
             </div>
-            <span className="shrink-0 text-xs text-slate-300" data-testid="filter-result-count">
-              พบ <strong className="text-white tabular-nums">{issues.length}</strong> รายการ
+            <span className="hidden shrink-0 text-xs text-fg-muted sm:inline" data-testid="filter-result-count">
+              พบ <strong className="font-semibold text-fg tabular-nums">{issues.length}</strong> รายการ
             </span>
             <button
               type="button"
               onClick={resetFilters}
               data-testid="reset-filters-btn"
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 text-xs font-semibold text-rose-200 transition hover:bg-rose-500/25 cursor-pointer"
+              className="btn btn-ghost btn-xs shrink-0"
             >
               <FilterX className="h-3.5 w-3.5" />
               ล้างตัวกรอง
@@ -1298,6 +1291,10 @@ export default function IssueMateAppPage() {
               onSelectIssue={(issue) => setSelectedIssue(issue)}
               onSort={handleSort}
               onUpvote={handleQuickUpvote}
+              isLoading={isLoading && !hasLoadedOnce}
+              hasActiveFilters={activeFilters.length > 0}
+              onResetFilters={resetFilters}
+              onCreate={canCreateAnything ? () => openCreateModalWithType(canReportIssue ? "bug" : "question") : undefined}
             />
           )}
 
@@ -1318,11 +1315,38 @@ export default function IssueMateAppPage() {
               issues={issues}
               onSelectIssue={(issue) => setSelectedIssue(issue)}
               onUpvote={handleQuickUpvote}
-              onOpenCreateIdea={() => openCreateModalWithType("feature")}
+              onOpenCreateIdea={canReportIssue ? () => openCreateModalWithType("feature") : undefined}
             />
           )}
         </main>
       </div>
+
+      {/* Floating action feedback (toast) */}
+      {actionFeedback && (
+        <div
+          data-testid="global-action-feedback"
+          role="status"
+          aria-live="polite"
+          className={`fixed right-4 bottom-4 left-4 z-[80] flex animate-toast-in items-start gap-3 rounded-xl border bg-overlay/95 px-4 py-3 text-[13px] shadow-pop backdrop-blur sm:left-auto sm:w-[380px] ${
+            actionFeedback.type === "success" ? "border-emerald-400/25" : "border-rose-400/30"
+          }`}
+        >
+          {actionFeedback.type === "success" ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          ) : (
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+          )}
+          <span className="min-w-0 flex-1 leading-relaxed text-fg">{actionFeedback.message}</span>
+          <button
+            type="button"
+            onClick={() => setActionFeedback(null)}
+            aria-label="ปิดข้อความ"
+            className="-mr-1 inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-white/10 hover:text-fg"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Issue Detail Slide-over Drawer */}
       <IssueDetailDrawer
@@ -1334,6 +1358,8 @@ export default function IssueMateAppPage() {
         onUploadFile={handleUploadFile}
         currentUserName={currentUser?.name}
         userPermission={selectedIssuePermission}
+        projectName={visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.name}
+        projectColor={visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.color}
       />
 
       {/* Command Palette (Ctrl+K) */}
@@ -1346,13 +1372,16 @@ export default function IssueMateAppPage() {
         onSelectProject={(key) => selectProject(key)}
         onChangeView={(v) => setViewMode(v)}
         onOpenCreateIssue={() => openCreateModalWithType("bug")}
+        onOpenAskQuestion={() => openCreateModalWithType("question")}
         onOpenCreateProject={() => setIsCreateProjectOpen(true)}
         onOpenMcpGuide={() => setIsAiMcpOpen(true)}
-        canCreateIssue={activeProjectPermission !== "viewer" && activeProjectPermission !== "none"}
+        canCreateIssue={canReportIssue}
+        canAskQuestion={canCreateAnything}
+        canUseMcp={canUseMcp}
         isAdmin={Boolean(currentUser?.isAdmin)}
       />
 
-      {/* Google Login & Setup Guide Modal */}
+      {/* Account, Members & Setup Modal */}
       <GoogleLoginModal
         open={isGoogleLoginOpen}
         user={currentUser}
@@ -1362,10 +1391,14 @@ export default function IssueMateAppPage() {
         }}
         onUserUpdated={(u) => setCurrentUser(u)}
         initialError={authErrorNotice}
-        onOpenMcpTokens={() => {
-          setIsGoogleLoginOpen(false);
-          setIsAiMcpOpen(true);
-        }}
+        onOpenMcpTokens={
+          canUseMcp
+            ? () => {
+                setIsGoogleLoginOpen(false);
+                setIsAiMcpOpen(true);
+              }
+            : undefined
+        }
         onDataReset={() => {
           setSelectedIssue(null);
           void fetchAllData();
@@ -1378,10 +1411,7 @@ export default function IssueMateAppPage() {
         onClose={() => setIsCreateProjectOpen(false)}
         onCreated={(proj) => {
           rememberSpecificProject(proj.key, true);
-          showFeedback(
-            "success",
-            `✅ สร้างโปรเจกต์ใหม่ [${proj.key}] ${proj.name} สำเร็จเรียบร้อยแล้ว`
-          );
+          showFeedback("success", `สร้างโปรเจกต์ ${proj.key} — ${proj.name} เรียบร้อยแล้ว`);
           void fetchAllData();
         }}
       />
@@ -1397,10 +1427,7 @@ export default function IssueMateAppPage() {
         onCreated={(created) => {
           rememberSpecificProject(created.projectKey, true);
           setSelectedIssue(created);
-          showFeedback(
-            "success",
-            `✅ ส่งเรื่องใหม่ #${created.code} ("${created.title}") สำเร็จเรียบร้อยแล้ว`
-          );
+          showFeedback("success", `ส่งเรื่อง ${created.code} เรียบร้อยแล้ว — ทีมงานจะได้รับแจ้งทันที`);
           void fetchAllData();
         }}
         currentUserName={

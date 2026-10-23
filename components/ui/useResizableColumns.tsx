@@ -204,10 +204,10 @@ export function ColumnResizeHandle({
         onResetColumn(colKey);
       }}
       onClick={(e) => e.stopPropagation()}
-      className={`absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize select-none transition-colors ${
+      className={`absolute top-2 right-0 bottom-2 w-1 cursor-col-resize rounded-full select-none transition-colors ${
         isActive
           ? "bg-emerald-400"
-          : "bg-transparent group-hover/th:bg-slate-600/60 hover:!bg-emerald-400"
+          : "bg-transparent group-hover/th:bg-white/15 hover:!bg-emerald-400"
       }`}
       title="ลากเพื่อปรับความกว้างคอลัมน์ / ดับเบิลคลิกเพื่อรีเซ็ต"
     />
@@ -229,10 +229,11 @@ export function ResetColumnWidthsButton({
       type="button"
       data-testid={testId}
       onClick={onReset}
-      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 text-xs font-medium text-slate-200 transition hover:border-emerald-500/50 hover:bg-slate-800 hover:text-emerald-300"
+      className="btn btn-ghost btn-xs"
+      title="คืนค่าความกว้างคอลัมน์เริ่มต้น"
     >
       <RotateCcw className="h-3.5 w-3.5" />
-      <span>ค่าเริ่มต้น 100%</span>
+      <span>คืนค่าความกว้างคอลัมน์</span>
     </button>
   );
 }

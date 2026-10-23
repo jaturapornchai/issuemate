@@ -2,10 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  X,
   FolderPlus,
-  PlusCircle,
-  Terminal,
+  Plus,
   Copy,
   Check,
   Sparkles,
@@ -15,13 +13,20 @@ import {
   KeyRound,
   Trash2,
   ShieldCheck,
-  FolderKanban,
   MessageSquareCode,
   Mic,
   MicOff,
   Wand2,
   Smartphone,
   MessageCircleQuestion,
+  BookmarkCheck,
+  PlugZap,
+  CircleAlert,
+  ChevronDown,
+  Eye,
+  Lock,
+  Wrench,
+  Settings2,
 } from "lucide-react";
 import type {
   ProjectRecord,
@@ -30,12 +35,18 @@ import type {
   IssueType,
   AttachmentItem,
 } from "@/lib/types";
-import {
-  getUserProjectPermission,
-  PROJECT_PERMISSION_CONFIG,
-  type AuthUser,
-} from "@/lib/permissions";
+import { getUserProjectPermission, type AuthUser } from "@/lib/permissions";
 import { FileUploadZone } from "@/components/ui/FileAttachmentZone";
+import { Dialog, DialogHeader, DialogFooter, SectionHeading, Notice } from "@/components/ui/Dialog";
+import {
+  TYPE_CONFIG,
+  TYPE_ORDER,
+  PRIORITY_CONFIG,
+  PRIORITY_ORDER,
+  STATUS_CONFIG,
+  TONE,
+  PermissionBadge,
+} from "@/components/ui/Badges";
 import {
   buildEnvironmentDetailsBlock,
   captureBrowserEnvironment,
@@ -43,6 +54,9 @@ import {
   type ClientEnvironmentInfo,
   type QaAssistantResponse,
 } from "@/lib/qa-assistant";
+import type { IssueStatus } from "@/lib/types";
+
+const PROJECT_COLORS = ["#10b981", "#3b82f6", "#ef4444", "#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899"];
 
 export function CreateProjectModal({
   open,
@@ -89,136 +103,119 @@ export function CreateProjectModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs"
-      onClick={onClose}
-    >
-      <div
-        data-testid="create-project-modal"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 shadow-2xl"
-      >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
-          <div className="flex items-center gap-2 text-sm font-bold text-white">
-            <FolderPlus className="h-4 w-4 text-emerald-400" />
-            <span>เพิ่มโปรเจกต์ / ระบบงานใหม่</span>
-          </div>
-          <button
-            type="button"
-            data-testid="close-create-project-modal-btn"
-            onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog onClose={onClose} size="sm" testId="create-project-modal" labelledBy="create-project-title">
+      <DialogHeader
+        titleId="create-project-title"
+        icon={<FolderPlus className="h-4 w-4 text-emerald-300" />}
+        title="สร้างโปรเจกต์ใหม่"
+        subtitle="แยกเรื่องของแต่ละระบบงานออกจากกัน เช่น ระบบบัญชี, POS"
+        onClose={onClose}
+        closeTestId="close-create-project-modal-btn"
+      />
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
           {error && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-300">
+            <Notice tone="error" icon={<CircleAlert className="h-4 w-4 text-rose-300" />}>
               {error}
-            </div>
+            </Notice>
           )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-300">
-                รหัสย่อ *
+              <label className="field-label" htmlFor="project-key">
+                รหัสย่อ <span className="text-rose-300">*</span>
               </label>
               <input
+                id="project-key"
                 type="text"
                 required
                 maxLength={10}
                 data-testid="project-key-input"
                 value={key}
-                onChange={(e) =>
-                  setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
-                }
-                placeholder="เช่น SML, POS"
-                className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-xs uppercase text-white focus:border-emerald-500 focus:outline-none"
+                onChange={(e) => setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                placeholder="เช่น POS"
+                className="input font-mono uppercase"
               />
             </div>
-
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-slate-300">
-                ชื่อโปรเจกต์ / ระบบงาน *
+              <label className="field-label" htmlFor="project-name">
+                ชื่อโปรเจกต์ <span className="text-rose-300">*</span>
               </label>
               <input
+                id="project-name"
                 type="text"
                 required
                 data-testid="project-name-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="เช่น SML Ai Account"
-                className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                placeholder="เช่น ระบบขายหน้าร้าน"
+                className="input"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-300">
+            <label className="field-label" htmlFor="project-desc">
               คำอธิบายสั้นๆ (ถ้ามี)
             </label>
             <input
+              id="project-desc"
               type="text"
               data-testid="project-desc-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="รายละเอียดระบบงาน..."
-              className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none"
+              placeholder="ระบบนี้ใช้ทำอะไร…"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-300">
-              สีประจำโปรเจกต์
-            </label>
-            <div className="flex items-center gap-2.5">
-              {[
-                "#10b981",
-                "#3b82f6",
-                "#ef4444",
-                "#f59e0b",
-                "#8b5cf6",
-                "#06b6d4",
-                "#ec4899",
-              ].map((hex) => (
+            <span className="field-label">สีประจำโปรเจกต์</span>
+            <div className="flex items-center gap-2">
+              {PROJECT_COLORS.map((hex) => (
                 <button
                   key={hex}
                   type="button"
                   onClick={() => setColor(hex)}
                   style={{ backgroundColor: hex }}
-                  className={`h-7 w-7 rounded-full border-2 transition cursor-pointer ${
-                    color === hex ? "scale-110 border-white" : "border-transparent opacity-70"
+                  aria-label={`เลือกสี ${hex}`}
+                  aria-pressed={color === hex}
+                  className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition ${
+                    color === hex ? "ring-2 ring-white ring-offset-2 ring-offset-overlay" : "opacity-70 hover:opacity-100"
                   }`}
-                />
+                >
+                  {color === hex && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
+                </button>
               ))}
             </div>
           </div>
+        </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 rounded-lg border border-slate-700 bg-slate-800 px-4 text-xs font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
-            >
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              data-testid="submit-create-project-btn"
-              disabled={isSaving}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
-            >
-              {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>บันทึกโปรเจกต์</span>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <DialogFooter className="justify-end">
+          <button type="button" onClick={onClose} className="btn btn-ghost">
+            ยกเลิก
+          </button>
+          <button type="submit" data-testid="submit-create-project-btn" disabled={isSaving} className="btn btn-primary">
+            {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            สร้างโปรเจกต์
+          </button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
+
+type SpeechRecognitionCtor = new () => {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((ev: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
 
 export function CreateIssueModal({
   open,
@@ -329,6 +326,7 @@ export function CreateIssueModal({
   if (!open) return null;
 
   const activeProjObj = projects.find((p) => p.key === projectKey);
+  const isQuestion = type === "question";
 
   const toggleVoiceRecognition = () => {
     if (isListening) {
@@ -336,50 +334,17 @@ export function CreateIssueModal({
       setIsListening(false);
       return;
     }
-    const SpeechRec =
+    const w =
       typeof window !== "undefined"
-        ? (
-            window as unknown as {
-              SpeechRecognition?: new () => {
-                lang: string;
-                interimResults: boolean;
-                continuous: boolean;
-                onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-                onerror: ((ev: { error?: string }) => void) | null;
-                onend: (() => void) | null;
-                start: () => void;
-                stop: () => void;
-              };
-              webkitSpeechRecognition?: new () => {
-                lang: string;
-                interimResults: boolean;
-                continuous: boolean;
-                onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-                onerror: ((ev: { error?: string }) => void) | null;
-                onend: (() => void) | null;
-                start: () => void;
-                stop: () => void;
-              };
-            }
-          ).SpeechRecognition ||
-          (
-            window as unknown as {
-              webkitSpeechRecognition?: new () => {
-                lang: string;
-                interimResults: boolean;
-                continuous: boolean;
-                onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-                onerror: ((ev: { error?: string }) => void) | null;
-                onend: (() => void) | null;
-                start: () => void;
-                stop: () => void;
-              };
-            }
-          ).webkitSpeechRecognition
+        ? (window as unknown as {
+            SpeechRecognition?: SpeechRecognitionCtor;
+            webkitSpeechRecognition?: SpeechRecognitionCtor;
+          })
         : undefined;
+    const SpeechRec = w?.SpeechRecognition || w?.webkitSpeechRecognition;
 
     if (!SpeechRec) {
-      setSpeechHint("เบราว์เซอร์นี้ไม่รองรับการสั่งงานด้วยเสียง กรุณาพิมพ์ข้อความในช่องแชทแทน");
+      setSpeechHint("เบราว์เซอร์นี้ไม่รองรับการสั่งงานด้วยเสียง กรุณาพิมพ์ข้อความแทน");
       return;
     }
 
@@ -399,7 +364,7 @@ export function CreateIssueModal({
             if (!title.trim()) setTitle(next.slice(0, 90));
             return next;
           });
-          setSpeechHint(`รับเสียงพูดสำเร็จ: "${transcript}"`);
+          setSpeechHint(`รับเสียงแล้ว: "${transcript}"`);
         }
       };
       rec.onerror = () => {
@@ -413,8 +378,8 @@ export function CreateIssueModal({
       setIsListening(true);
       setSpeechHint(
         voiceLang === "th-TH"
-          ? "🎙️ กำลังฟังเสียงภาษาไทย... พูดอธิบายปัญหาได้เลย"
-          : "🎙️ Listening in English... Speak out the issue"
+          ? "กำลังฟัง… พูดอธิบายปัญหาเป็นภาษาไทยได้เลย"
+          : "Listening… describe the issue in English"
       );
       rec.start();
     } catch {
@@ -484,11 +449,7 @@ export function CreateIssueModal({
 
     // If user typed in the Simple Chat box without manually filling the technical title, run AI Politeness & Formatter
     if (chatText.trim() && (!qaResult || qaResult.needsClarification)) {
-      const formatted = await runAiFormatCheck(
-        chatText,
-        clarificationAnswer || undefined,
-        false
-      );
+      const formatted = await runAiFormatCheck(chatText, clarificationAnswer || undefined, false);
       if (formatted?.needsClarification) {
         // Pause submission and show friendly clarifying question + quick-reply pills
         return;
@@ -520,13 +481,11 @@ export function CreateIssueModal({
       return;
     }
 
-    // Feature 3: Zero-Effort Environment Auto-Capture appended in collapsible <details> block
+    // Zero-Effort Environment Auto-Capture appended in collapsible <details> block
     const envToAttach = capturedEnv || captureBrowserEnvironment();
     const envBlock = buildEnvironmentDetailsBlock(envToAttach);
     if (!finalDescription.includes("<summary>📱 Device & Environment Info</summary>")) {
-      finalDescription = finalDescription
-        ? `${finalDescription}\n\n${envBlock}`
-        : envBlock;
+      finalDescription = finalDescription ? `${finalDescription}\n\n${envBlock}` : envBlock;
     }
 
     setError(null);
@@ -569,503 +528,361 @@ export function CreateIssueModal({
     }
   };
 
-  const quickTypes: Array<{ value: IssueType; label: string; emoji: string }> = [
-    { value: "question", label: "สอบถาม / ตั้งคำถาม", emoji: "❓" },
-    { value: "bug", label: "แจ้งปัญหาการใช้งาน", emoji: "🐛" },
-    { value: "feature", label: "ขอเพิ่มฟีเจอร์ / ปรับปรุง", emoji: "✨" },
-    { value: "incident", label: "ด่วนมาก / ระบบเข้าไม่ได้", emoji: "🚨" },
-    { value: "performance", label: "ระบบช้า / ค้าง", emoji: "🐢" },
-    { value: "security", label: "สิทธิ์การใช้งาน / รหัสผ่าน", emoji: "🔐" },
-    { value: "deployment", label: "อัปเดตระบบ / ติดตั้ง", emoji: "🚀" },
-  ];
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
-      onClick={onClose}
-    >
-      <div
-        data-testid="create-issue-modal"
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-2xl"
-      >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
-          <div className="flex items-center gap-2 text-sm font-bold text-white">
-            <PlusCircle className="h-4 w-4 text-emerald-400" />
-            <span>
-              {type === "question"
-                ? "สอบถาม / ตั้งคำถามเกี่ยวกับการใช้งาน (แนบรูปภาพและไฟล์ได้)"
-                : "แจ้งปัญหาการใช้งาน / สอบถามเรื่องใหม่ (แนบรูปภาพและไฟล์ได้หลายรายการ)"}
-            </span>
-          </div>
-          <button
-            type="button"
-            data-testid="close-create-issue-modal-btn"
-            onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+    <Dialog onClose={onClose} size="lg" testId="create-issue-modal" labelledBy="create-issue-title">
+      <DialogHeader
+        titleId="create-issue-title"
+        icon={
+          isQuestion ? (
+            <MessageCircleQuestion className="h-4 w-4 text-sky-300" />
+          ) : (
+            <Plus className="h-4 w-4 text-emerald-300" strokeWidth={2.5} />
+          )
+        }
+        title={isQuestion ? "ถามคำถามใหม่" : "แจ้งปัญหา / เรื่องใหม่"}
+        subtitle="เล่าแบบง่ายๆ เหมือนคุยแชท แนบรูปได้ — ทีมงานจะได้รับแจ้งทันที"
+        onClose={onClose}
+        closeTestId="close-create-issue-modal-btn"
+      />
+
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5 sm:px-6">
+          {error && (
+            <Notice tone="error" icon={<CircleAlert className="h-4 w-4 text-rose-300" />} onDismiss={() => setError(null)}>
+              {error}
+            </Notice>
+          )}
+
+          {/* Target project (remembered) */}
+          <div
+            data-testid="create-issue-remembered-project-banner"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-white/[0.02] px-3.5 py-3"
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {error && (
-              <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-300">
-                {error}
-              </div>
-            )}
-
-            {/* Remembered Project Banner + 1-Click Project Switcher Pills */}
-            <div
-              data-testid="create-issue-remembered-project-banner"
-              className="rounded-xl border border-emerald-500/35 bg-emerald-950/20 p-3 space-y-2"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-bold text-emerald-300">
-                    📌 จำโปรเจกต์ล่าสุดที่ใช้
-                  </span>
-                  <span className="font-bold text-white">
-                    [{projectKey}] {activeProjObj?.name || ""}
-                  </span>
-                </div>
-                {activePerm !== "none" && (
-                  <span
-                    data-testid="create-modal-permission-badge"
-                    className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${PROJECT_PERMISSION_CONFIG[activePerm].badgeClass}`}
-                  >
-                    สิทธิ์ในโปรเจกต์นี้: {PROJECT_PERMISSION_CONFIG[activePerm].shortLabel}
-                  </span>
-                )}
-              </div>
-
-              {projects.length > 1 && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  <span className="text-[11px] text-slate-400 mr-1">สลับโปรเจกต์ด่วน:</span>
-                  {projects.map((p) => {
-                    const active = p.key === projectKey;
-                    return (
-                      <button
-                        key={p.key}
-                        type="button"
-                        data-testid={`quick-project-pill-${p.key}`}
-                        onClick={() => handleSelectProjectKey(p.key)}
-                        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition cursor-pointer ${
-                          active
-                            ? "border-emerald-400 bg-emerald-500/25 text-white shadow-xs"
-                            : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
-                        }`}
-                      >
-                        <span
-                          className="h-2 w-2 rounded-full shrink-0"
-                          style={{ backgroundColor: p.color }}
-                        />
-                        <span className="font-mono font-bold">[{p.key}]</span>
-                        <span className="truncate max-w-[140px]">{p.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+            <span className="inline-flex items-center gap-1.5 text-xs text-fg-subtle">
+              <BookmarkCheck className="h-3.5 w-3.5 text-emerald-400" />
+              ส่งเข้าโปรเจกต์
+            </span>
+            <div className="relative min-w-0 flex-1 sm:max-w-[320px]">
+              <span
+                className="pointer-events-none absolute top-1/2 left-3 h-2.5 w-2.5 -translate-y-1/2 rounded-[4px]"
+                style={{ backgroundColor: activeProjObj?.color || "#6d7787" }}
+              />
+              <select
+                data-testid="issue-project-select"
+                value={projectKey}
+                onChange={(e) => handleSelectProjectKey(e.target.value)}
+                aria-label="โปรเจกต์ที่จะส่งเรื่องเข้า"
+                className="select h-9 pl-8 font-medium"
+              >
+                {projects.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.name} · {p.key}
+                  </option>
+                ))}
+              </select>
             </div>
-
-            {isQuestionOnly && (
-              <div
-                data-testid="question-only-permission-notice"
-                className="rounded-lg border border-cyan-500/45 bg-cyan-950/30 px-3.5 py-2.5 text-xs text-cyan-200"
-              >
-                🔒 บัญชีของคุณได้รับสิทธิ์ <strong>&ldquo;สอบถามได้อย่างเดียว&rdquo;</strong> ในโปรเจกต์{" "}
-                <strong>[{projectKey}]</strong> — ระบบเลือกหัวข้อ{" "}
-                <strong>&ldquo;❓ สอบถาม / ตั้งคำถาม&rdquo;</strong> ให้อัตโนมัติ
-              </div>
+            {activePerm !== "none" && (
+              <PermissionBadge
+                permission={activePerm}
+                testId="create-modal-permission-badge"
+                className="ml-auto"
+              />
             )}
+          </div>
 
-            {isViewOnly && (
-              <div
-                data-testid="viewer-permission-notice"
-                className="rounded-lg border border-amber-500/45 bg-amber-950/30 px-3.5 py-2.5 text-xs text-amber-200"
-              >
-                👀 บัญชีของคุณมีสิทธิ์ <strong>&ldquo;ดูอย่างเดียว&rdquo;</strong> ในโปรเจกต์{" "}
-                <strong>[{projectKey}]</strong> จึงไม่สามารถตั้งเรื่องใหม่ในโปรเจกต์นี้ได้
-              </div>
-            )}
-
-            {/* Feature 1 & 4: "Speak or Type Like Chat" Input + Voice-to-Issue + Mode Toggle */}
-            <div
-              data-testid="easy-tester-chat-section"
-              className="rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-950/30 via-slate-950 to-slate-900 p-4 space-y-3"
+          {isQuestionOnly && (
+            <Notice
+              tone="info"
+              testId="question-only-permission-notice"
+              icon={<Lock className="h-4 w-4 text-sky-300" />}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                    <Wand2 className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <h4 className="text-xs font-bold text-white">
-                      พูดหรือพิมพ์เหมือนคุยแชท — AI จัดระเบียบ Issue ให้นักพัฒนาอัตโนมัติ
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      ไม่ต้องกรอกหลายช่อง พิมพ์หรือกดไมค์พูดอาการที่เจอได้เลย
-                    </p>
-                  </div>
-                </div>
+              บัญชีของคุณ<strong className="font-semibold">ถามคำถามได้อย่างเดียว</strong>ในโปรเจกต์{" "}
+              <strong className="font-semibold">{projectKey}</strong> — ระบบเลือกประเภท “คำถาม” ให้อัตโนมัติ
+            </Notice>
+          )}
 
-                {/* Mode Toggle: Simple / Technical */}
+          {isViewOnly && (
+            <Notice tone="warning" testId="viewer-permission-notice" icon={<Eye className="h-4 w-4 text-amber-300" />}>
+              บัญชีของคุณมีสิทธิ์<strong className="font-semibold">ดูอย่างเดียว</strong>ในโปรเจกต์{" "}
+              <strong className="font-semibold">{projectKey}</strong> จึงส่งเรื่องใหม่ในโปรเจกต์นี้ไม่ได้
+            </Notice>
+          )}
+
+          {/* Step 1 — type */}
+          <section>
+            <SectionHeading step={1} title="เรื่องที่ต้องการแจ้ง" hint="เลือกหัวข้อที่ใกล้เคียงที่สุด" />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {TYPE_ORDER.map((t) => {
+                const cfg = TYPE_CONFIG[t];
+                const Icon = cfg.icon;
+                const isSelected = type === t;
+                const disabled = isQuestionOnly && t !== "question";
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={isSelected}
+                    data-testid={`quick-type-pill-${t}`}
+                    onClick={() => !disabled && setType(t)}
+                    className={`flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-35 ${
+                      isSelected
+                        ? "border-emerald-400/50 bg-emerald-400/[0.07] ring-1 ring-emerald-400/30 ring-inset"
+                        : "border-line bg-white/[0.02] hover:border-line-strong hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${TONE[cfg.tone].soft}`}>
+                      <Icon className={`h-4 w-4 ${TONE[cfg.tone].text}`} />
+                    </span>
+                    <span className="text-[13px] leading-tight font-medium text-fg" title={cfg.label}>
+                      {cfg.shortLabel}
+                    </span>
+                    <span className="text-[11px] leading-tight text-fg-subtle">{cfg.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Step 2 — describe (chat / voice / AI) */}
+          <section data-testid="easy-tester-chat-section">
+            <SectionHeading
+              step={2}
+              title="เล่าให้เราฟัง"
+              hint="พิมพ์หรือกดไมค์พูดได้เลย แล้วให้ AI ช่วยเรียบเรียงเป็นหัวข้อให้"
+              right={
                 <div
                   data-testid="issue-mode-toggle"
-                  className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-[11px]"
+                  className="flex shrink-0 items-center rounded-lg border border-line bg-black/20 p-0.5 text-xs"
                 >
                   <button
                     type="button"
                     data-testid="mode-simple-btn"
                     onClick={() => setInputMode("simple")}
-                    className={`rounded-md px-2.5 py-1 font-bold transition cursor-pointer ${
-                      inputMode === "simple"
-                        ? "bg-emerald-600 text-white"
-                        : "text-slate-400 hover:text-white"
+                    aria-pressed={inputMode === "simple"}
+                    className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
+                      inputMode === "simple" ? "bg-white/10 font-medium text-fg" : "text-fg-subtle hover:text-fg"
                     }`}
                   >
-                    💬 โหมดง่าย (Simple)
+                    แบบง่าย
                   </button>
                   <button
                     type="button"
                     data-testid="mode-technical-btn"
                     onClick={() => setInputMode("technical")}
-                    className={`rounded-md px-2.5 py-1 font-bold transition cursor-pointer ${
-                      inputMode === "technical"
-                        ? "bg-cyan-600 text-white"
-                        : "text-slate-400 hover:text-white"
+                    aria-pressed={inputMode === "technical"}
+                    className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
+                      inputMode === "technical" ? "bg-white/10 font-medium text-fg" : "text-fg-subtle hover:text-fg"
                     }`}
                   >
-                    🛠️ โหมดละเอียด (Technical)
+                    แบบละเอียด
                   </button>
                 </div>
-              </div>
+              }
+            />
 
-              <div className="relative">
-                <textarea
-                  rows={3}
-                  data-testid="chat-issue-input"
-                  value={chatText}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setChatText(val);
-                    setQaResult(null);
-                  }}
-                  placeholder="เจอปัญหาอะไร หรืออยากให้ทำอะไร พิมพ์หรือพูดบอกได้เลย..."
-                  className="w-full rounded-xl border border-cyan-500/40 bg-slate-950/95 p-3.5 pr-28 text-sm text-white placeholder-slate-400 focus:border-emerald-400 focus:outline-none leading-relaxed"
-                />
-
-                <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    data-testid="voice-lang-toggle"
-                    onClick={() =>
-                      setVoiceLang((prev) => (prev === "th-TH" ? "en-US" : "th-TH"))
-                    }
-                    className="inline-flex h-8 items-center rounded-lg border border-slate-700 bg-slate-900 px-2 text-[10px] font-mono font-bold text-slate-300 hover:border-cyan-400 cursor-pointer"
-                    title="สลับภาษาไมโครโฟน ไทย / อังกฤษ"
-                  >
-                    {voiceLang === "th-TH" ? "🇹🇭 TH" : "🇺🇸 EN"}
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="voice-speech-btn"
-                    onClick={toggleVoiceRecognition}
-                    className={`inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold shadow transition cursor-pointer ${
-                      isListening
-                        ? "animate-pulse bg-rose-600 text-white"
-                        : "bg-cyan-600 text-white hover:bg-cyan-500"
-                    }`}
-                    title="กดเพื่อพูดอธิบายปัญหาด้วยเสียง (Web Speech API)"
-                  >
-                    {isListening ? (
-                      <>
-                        <MicOff className="h-3.5 w-3.5" />
-                        <span>หยุดฟัง</span>
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="h-3.5 w-3.5" />
-                        <span>พูดบอกปัญหา</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {speechHint && (
-                <p
-                  data-testid="voice-speech-hint"
-                  className="text-[11px] font-medium text-cyan-300"
+            <div
+              className={`rounded-2xl border bg-black/20 transition focus-within:ring-4 focus-within:ring-emerald-400/10 ${
+                isListening ? "border-rose-400/50" : "border-line focus-within:border-emerald-400/50"
+              }`}
+            >
+              <textarea
+                rows={3}
+                data-testid="chat-issue-input"
+                value={chatText}
+                onChange={(e) => {
+                  setChatText(e.target.value);
+                  setQaResult(null);
+                }}
+                placeholder={
+                  isQuestion
+                    ? "อยากถามเรื่องอะไร เล่าได้เลย เช่น “ออกรายงานภาษีซื้อเป็น PDF ยังไง”"
+                    : "เจอปัญหาอะไร เล่าได้เลย เช่น “กดบันทึกใบกำกับภาษีแล้วยอด VAT เป็น 0”"
+                }
+                className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none"
+              />
+              <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5">
+                <button
+                  type="button"
+                  data-testid="voice-speech-btn"
+                  onClick={toggleVoiceRecognition}
+                  className={`btn btn-xs ${
+                    isListening ? "animate-pulse bg-rose-500 text-white" : "btn-secondary"
+                  }`}
+                  title="กดเพื่อพูดอธิบายปัญหาด้วยเสียง"
                 >
-                  {speechHint}
-                </p>
-              )}
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span
-                  data-testid="auto-env-capture-indicator"
-                  className="inline-flex items-center gap-1.5 text-[11px] text-slate-400"
+                  {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                  {isListening ? "หยุดฟัง" : "พูดบอกปัญหา"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="voice-lang-toggle"
+                  onClick={() => setVoiceLang((prev) => (prev === "th-TH" ? "en-US" : "th-TH"))}
+                  className="btn btn-ghost btn-xs font-mono"
+                  title="สลับภาษาไมโครโฟน ไทย / อังกฤษ"
                 >
-                  <Smartphone className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>
-                    แนบข้อมูลอุปกรณ์ เบราว์เซอร์ และขนาดหน้าจอให้นักพัฒนาอัตโนมัติ (ไม่ต้องกรอกเอง)
-                  </span>
-                </span>
-
+                  {voiceLang === "th-TH" ? "TH" : "EN"}
+                </button>
                 <button
                   type="button"
                   data-testid="ai-structure-issue-btn"
                   disabled={!chatText.trim() || isFormattingAi}
-                  onClick={() =>
-                    void runAiFormatCheck(chatText, clarificationAnswer || undefined, false)
-                  }
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/20 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-40 cursor-pointer"
+                  onClick={() => void runAiFormatCheck(chatText, clarificationAnswer || undefined, false)}
+                  className="btn btn-xs ml-auto border border-violet-400/30 bg-violet-400/10 text-violet-100 hover:bg-violet-400/20"
                 >
                   {isFormattingAi ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                    <Sparkles className="h-3.5 w-3.5 text-violet-300" />
                   )}
-                  <span>✨ ให้ AI สรุปและจัดรูปแบบ Issue</span>
+                  ให้ AI ช่วยเรียบเรียง
                 </button>
               </div>
-
-              {/* Feature 4: AI "Missing Info" Politeness Check */}
-              {qaResult?.needsClarification && (
-                <div
-                  data-testid="ai-clarification-box"
-                  className="rounded-xl border border-amber-400/60 bg-amber-950/35 p-3.5 space-y-2.5"
-                >
-                  <div className="flex items-start gap-2">
-                    <MessageCircleQuestion className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="text-xs font-bold text-amber-200">
-                        น้อง AI ขอสอบถามเพิ่มนิดนึงนะคะ เพื่อให้นักพัฒนาแก้ได้ตรงจุดที่สุด:
-                      </p>
-                      <p
-                        data-testid="ai-clarifying-question"
-                        className="text-xs font-semibold text-white"
-                      >
-                        {qaResult.clarifyingQuestion}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {qaResult.quickReplyOptions.map((opt, idx) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        data-testid={`ai-quick-reply-${idx}`}
-                        onClick={() => {
-                          setClarificationAnswer(opt);
-                          void runAiFormatCheck(chatText, opt, true);
-                        }}
-                        className="rounded-lg border border-amber-400/50 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/25 hover:text-white cursor-pointer"
-                      >
-                        👉 {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Feature 1: Structured Issue Preview with Severity Badge */}
-              {qaResult && !qaResult.needsClarification && qaResult.issue && (
-                <div
-                  data-testid="ai-structured-preview"
-                  className="rounded-xl border border-emerald-500/45 bg-slate-950/90 p-3.5 space-y-2 text-xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                    <span className="font-bold text-emerald-300">
-                      ✅ AI จัดโครงสร้าง Issue พร้อมสำหรับทีมพัฒนาแล้ว:
-                    </span>
-                    <span
-                      data-testid="ai-severity-badge"
-                      className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-0.5 text-[11px] font-bold text-white"
-                    >
-                      {formatSeverityBadge(qaResult.issue.severity)}
-                    </span>
-                  </div>
-                  <p className="font-bold text-white">{qaResult.issue.title}</p>
-                  <div className="space-y-1 text-[11px] text-slate-300">
-                    <p className="font-semibold text-cyan-300">ขั้นตอนการจำลองปัญหา (Steps):</p>
-                    {qaResult.issue.stepsToReproduce.map((st) => (
-                      <p key={st} className="pl-2">
-                        {st}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Technical Mode Live Environment Preview */}
-              {inputMode === "technical" && capturedEnv && (
-                <div
-                  data-testid="technical-mode-env-preview"
-                  className="rounded-lg border border-cyan-500/35 bg-slate-950/90 p-3 text-[11px] text-slate-300 space-y-1"
-                >
-                  <p className="font-bold text-cyan-300">
-                    🛠️ โหมดละเอียด (Technical Context Auto-Captured):
-                  </p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[10px] text-slate-400">
-                    <span>OS / Device: {capturedEnv.osAndDevice}</span>
-                    <span>Browser: {capturedEnv.browser}</span>
-                    <span>Viewport: {capturedEnv.viewportSize}</span>
-                    <span>Network: {capturedEnv.networkInfo}</span>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Quick Type Selector Pills (Easy for Non-Dev Users!) */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-200">
-                เลือกหัวข้อเรื่องที่ต้องการแจ้ง (คลิกเลือกได้ทันที)
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {quickTypes.map((qt) => {
-                  const isSelected = type === qt.value;
-                  const disabled = isQuestionOnly && qt.value !== "question";
-                  return (
+            {speechHint && (
+              <p data-testid="voice-speech-hint" className="mt-2 text-xs text-fg-muted">
+                {speechHint}
+              </p>
+            )}
+
+            <p
+              data-testid="auto-env-capture-indicator"
+              className="mt-2 inline-flex items-center gap-1.5 text-xs text-fg-subtle"
+            >
+              <Smartphone className="h-3.5 w-3.5 text-emerald-400/80" />
+              ระบบแนบข้อมูลอุปกรณ์และเบราว์เซอร์ให้ทีมพัฒนาอัตโนมัติ ไม่ต้องกรอกเอง
+            </p>
+
+            {/* AI "Missing Info" Politeness Check */}
+            {qaResult?.needsClarification && (
+              <div
+                data-testid="ai-clarification-box"
+                className="mt-3 animate-scale-in rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-4"
+              >
+                <div className="flex items-start gap-2.5">
+                  <MessageCircleQuestion className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <div>
+                    <p className="text-xs text-amber-200/80">ขอถามเพิ่มอีกนิด เพื่อให้แก้ได้ตรงจุด</p>
+                    <p data-testid="ai-clarifying-question" className="mt-0.5 text-[13px] font-medium text-fg">
+                      {qaResult.clarifyingQuestion}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5 pl-6">
+                  {qaResult.quickReplyOptions.map((opt, idx) => (
                     <button
-                      key={qt.value}
+                      key={opt}
                       type="button"
-                      disabled={disabled}
-                      data-testid={`quick-type-pill-${qt.value}`}
-                      onClick={() => !disabled && setType(qt.value)}
-                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
-                        isSelected
-                          ? "border-emerald-400 bg-emerald-500/25 text-white shadow-xs"
-                          : disabled
-                          ? "border-slate-800 bg-slate-950/40 text-slate-600 cursor-not-allowed"
-                          : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 cursor-pointer"
-                      }`}
+                      data-testid={`ai-quick-reply-${idx}`}
+                      onClick={() => {
+                        setClarificationAnswer(opt);
+                        void runAiFormatCheck(chatText, opt, true);
+                      }}
+                      className="btn btn-secondary btn-sm"
                     >
-                      <span>{qt.emoji}</span>
-                      <span>{qt.label}</span>
+                      {opt}
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Row 1: Project, Type, Priority Dropdowns */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-200">
-                  โปรเจกต์ / ระบบงาน *
-                </label>
-                <select
-                  data-testid="issue-project-select"
-                  value={projectKey}
-                  onChange={(e) => handleSelectProjectKey(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                >
-                  {projects.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      [{p.key}] {p.name}
-                    </option>
                   ))}
-                </select>
+                </div>
               </div>
+            )}
 
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-200">
-                  ประเภทเรื่อง
-                </label>
-                <select
-                  data-testid="issue-type-select"
-                  value={type}
-                  disabled={isQuestionOnly}
-                  onChange={(e) => setType(e.target.value as IssueType)}
-                  className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none disabled:opacity-60"
-                >
-                  <option value="question">❓ สอบถาม / ตั้งคำถาม</option>
-                  <option value="bug" disabled={isQuestionOnly}>
-                    🐛 แจ้งปัญหาการใช้งาน
-                  </option>
-                  <option value="feature" disabled={isQuestionOnly}>
-                    ✨ ขอเพิ่มฟีเจอร์ / ปรับปรุง
-                  </option>
-                  <option value="incident" disabled={isQuestionOnly}>
-                    🚨 ด่วนมาก / ระบบเข้าไม่ได้
-                  </option>
-                  <option value="performance" disabled={isQuestionOnly}>
-                    🐢 ระบบช้า / ค้าง
-                  </option>
-                  <option value="security" disabled={isQuestionOnly}>
-                    🔐 สิทธิ์การใช้งาน / รหัสผ่าน
-                  </option>
-                  <option value="deployment" disabled={isQuestionOnly}>
-                    🚀 อัปเดตระบบ / ติดตั้ง
-                  </option>
-                </select>
+            {/* Structured Issue Preview with Severity Badge */}
+            {qaResult && !qaResult.needsClarification && qaResult.issue && (
+              <div
+                data-testid="ai-structured-preview"
+                className="mt-3 animate-scale-in rounded-xl border border-violet-400/20 bg-violet-400/[0.05] p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-200">
+                    <Wand2 className="h-3.5 w-3.5" />
+                    AI เรียบเรียงให้แล้ว — เติมหัวข้อในขั้นที่ 3 ให้อัตโนมัติ
+                  </span>
+                  <span data-testid="ai-severity-badge" className="pill bg-white/[0.05] text-fg ring-line">
+                    {formatSeverityBadge(qaResult.issue.severity)}
+                  </span>
+                </div>
+                <p className="mt-2 text-[13px] font-semibold text-fg">{qaResult.issue.title}</p>
+                {qaResult.issue.stepsToReproduce.length > 0 && (
+                  <div className="mt-2 space-y-0.5 text-xs text-fg-muted">
+                    <p className="text-fg-subtle">ขั้นตอนที่ทำให้เกิดปัญหา</p>
+                    {qaResult.issue.stepsToReproduce.map((st) => (
+                      <p key={st}>{st}</p>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
 
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-200">
-                  ความเร่งด่วน
-                </label>
-                <select
-                  data-testid="issue-priority-select"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as IssuePriority)}
-                  className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                >
-                  <option value="high">ด่วน</option>
-                  <option value="medium">ปกติ</option>
-                  <option value="critical">ด่วนที่สุด</option>
-                  <option value="low">ทั่วไป / ไม่ด่วน</option>
-                </select>
+            {/* Technical Mode Live Environment Preview */}
+            {inputMode === "technical" && capturedEnv && (
+              <div
+                data-testid="technical-mode-env-preview"
+                className="mt-3 rounded-xl border border-line bg-white/[0.02] p-3.5"
+              >
+                <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+                  <Settings2 className="h-3.5 w-3.5" />
+                  ข้อมูลเทคนิคที่จะแนบให้อัตโนมัติ
+                </p>
+                <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-2">
+                  {(
+                    [
+                      ["ระบบปฏิบัติการ / อุปกรณ์", capturedEnv.osAndDevice],
+                      ["เบราว์เซอร์", capturedEnv.browser],
+                      ["ขนาดหน้าจอ", capturedEnv.viewportSize],
+                      ["เครือข่าย", capturedEnv.networkInfo],
+                    ] as Array<[string, string]>
+                  ).map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-fg-subtle">{label}</dt>
+                      <dd className="truncate font-mono text-fg-muted">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
-            </div>
+            )}
+          </section>
 
-            {/* Row 2: Title */}
+          {/* Step 3 — title, details, priority */}
+          <section className="space-y-4">
+            <SectionHeading
+              step={3}
+              title={isQuestion ? "ตรวจทานคำถาม" : "ตรวจทานหัวข้อและรายละเอียด"}
+              hint="AI เติมให้อัตโนมัติ หรือพิมพ์เองก็ได้"
+            />
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-200">
-                {type === "question"
-                  ? "คำถาม / เรื่องที่ต้องการสอบถาม *"
-                  : "หัวข้อปัญหา / เรื่องที่ต้องการแจ้ง (AI กรอกให้อัตโนมัติ หรือพิมพ์เองได้) *"}
+              <label className="field-label" htmlFor="issue-title">
+                {isQuestion ? "คำถาม" : "หัวข้อเรื่อง"} <span className="text-rose-300">*</span>
               </label>
               <input
+                id="issue-title"
                 type="text"
                 required={!chatText.trim()}
                 data-testid="issue-title-input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={
-                  type === "question"
-                    ? "พิมพ์คำถามที่สงสัย เช่น วิธีออกรายงานภาษีทำอย่างไร, ขอไฟล์ PDF คู่มือการใช้งาน..."
-                    : "พิมพ์หัวข้อสั้นๆ เช่น บันทึกข้อมูลไม่ได้, ยอดเงินไม่ตรง, หน้าจอค้าง..."
+                  isQuestion
+                    ? "เช่น วิธีออกรายงานภาษีซื้อเป็น PDF"
+                    : "เช่น บันทึกใบกำกับภาษีแล้วยอด VAT เป็น 0"
                 }
-                className="h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                className="input h-11 text-sm"
               />
 
               {similarIssues.length > 0 && (
-                <div className="mt-2 rounded-lg border border-amber-500/35 bg-amber-950/20 p-2.5 text-xs">
-                  <p className="mb-1 flex items-center gap-1.5 font-semibold text-amber-300">
+                <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-3">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-200">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    <span>พบรายการหรือคำถามที่คล้ายกันในโปรเจกต์นี้:</span>
+                    มีเรื่องคล้ายกันอยู่แล้ว — ลองดูก่อนส่ง จะได้ไม่ซ้ำ
                   </p>
                   <div className="space-y-1">
                     {similarIssues.map((sim) => (
-                      <div
-                        key={sim.code}
-                        className="flex items-center justify-between rounded bg-slate-900/90 px-2.5 py-1 text-[11px]"
-                      >
-                        <span className="truncate text-slate-200">
-                          <strong className="font-mono text-emerald-400 mr-1.5">
-                            #{sim.code}
-                          </strong>
-                          {sim.title}
-                        </span>
-                        <span className="shrink-0 text-amber-300 ml-2">
-                          สถานะ: {sim.status}
+                      <div key={sim.code} className="flex items-center gap-2 rounded-lg bg-black/20 px-2.5 py-1.5 text-xs">
+                        <span className="shrink-0 font-mono text-fg-subtle">{sim.code}</span>
+                        <span className="min-w-0 flex-1 truncate text-fg-muted">{sim.title}</span>
+                        <span className="shrink-0 text-fg-subtle">
+                          {STATUS_CONFIG[sim.status as IssueStatus]?.shortLabel || sim.status}
                         </span>
                       </div>
                     ))}
@@ -1074,74 +891,108 @@ export function CreateIssueModal({
               )}
             </div>
 
-            {/* Row 3: Description */}
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-200">
-                รายละเอียดเพิ่มเติม (ถ้ามี)
+              <label className="field-label" htmlFor="issue-desc">
+                รายละเอียดเพิ่มเติม <span className="text-fg-subtle">(ถ้ามี)</span>
               </label>
               <textarea
-                rows={2}
+                id="issue-desc"
+                rows={3}
                 data-testid="issue-desc-input"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={
-                  type === "question"
-                    ? "ระบุรายละเอียดคำถามเพิ่มเติม หรือแจ้งว่าต้องการให้ส่งคู่มือ PDF / รูปภาพตัวอย่างกลับ..."
-                    : "อธิบายอาการที่พบ หรือสิ่งที่ต้องการให้แก้ไข... (สามารถกด Ctrl+V เพื่อวางรูปแคปหน้าจอได้ทันที)"
+                  isQuestion
+                    ? "รายละเอียดคำถาม หรือบอกว่าต้องการคู่มือ PDF / รูปตัวอย่างกลับ…"
+                    : "อาการที่พบ ขั้นตอนที่ทำ หรือสิ่งที่อยากให้แก้…"
                 }
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-white focus:border-emerald-500 focus:outline-none leading-relaxed"
+                className="textarea"
               />
             </div>
 
-            {/* Row 4: Prominent Multi-Image & Multi-File Upload Zone */}
             <div>
-              <label className="mb-1.5 block text-xs font-bold text-emerald-300">
-                🖼️ แนบรูปภาพ & ไฟล์เอกสารประกอบ (เลือกได้หลายรูป หลายไฟล์ PDF/Excel พร้อมกัน หรือกด Ctrl+V วางรูปได้เรื่อยๆ)
-              </label>
-              <FileUploadZone
-                attachments={attachments}
-                onChange={setAttachments}
-                uploadedBy={reporter}
-                listenGlobalPaste={open}
-                onUploadingChange={setIsUploadingFiles}
-              />
+              <span className="field-label">ความเร่งด่วน</span>
+              <div role="radiogroup" aria-label="ความเร่งด่วน" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {PRIORITY_ORDER.map((p) => {
+                  const cfg = PRIORITY_CONFIG[p];
+                  const Icon = cfg.icon;
+                  const active = priority === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      data-testid={`priority-option-${p}`}
+                      onClick={() => setPriority(p)}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-white/20 bg-white/[0.07] ring-1 ring-white/10 ring-inset"
+                          : "border-line hover:border-line-strong hover:bg-white/[0.03]"
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 shrink-0 ${TONE[cfg.tone].text}`} />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] leading-tight font-medium text-fg">{cfg.label}</span>
+                        <span className="block truncate text-[11px] text-fg-subtle">{cfg.hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* Sticky Footer */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/90 px-5 py-3.5">
-            <span className="text-[11px] text-slate-400">
-              ผู้แจ้ง: <strong className="text-slate-200">{reporter}</strong>
-            </span>
+          {/* Step 4 — attachments */}
+          <section>
+            <SectionHeading
+              step={4}
+              title="แนบรูปภาพหรือไฟล์"
+              hint="ไม่บังคับ แต่ภาพหน้าจอช่วยให้แก้ได้เร็วขึ้นมาก"
+            />
+            <FileUploadZone
+              attachments={attachments}
+              onChange={setAttachments}
+              uploadedBy={reporter}
+              listenGlobalPaste={open}
+              onUploadingChange={setIsUploadingFiles}
+            />
+          </section>
+        </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="h-9 rounded-lg border border-slate-700 bg-slate-800 px-4 text-xs font-medium text-slate-300 hover:bg-slate-700 cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="submit"
-                data-testid="submit-create-issue-btn"
-                disabled={isSaving || isViewOnly || isUploadingFiles}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50 cursor-pointer shadow"
-              >
-                {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                <span>
-                  {attachments.length > 0
-                    ? `บันทึกรายการ (แนบ ${attachments.length} ไฟล์)`
-                    : type === "question"
-                    ? "ส่งคำถาม / สอบถาม"
-                    : "บันทึกแจ้งปัญหา"}
-                </span>
-              </button>
-            </div>
+        <DialogFooter>
+          <span className="min-w-0 truncate text-xs text-fg-subtle">
+            ผู้แจ้ง <strong className="font-medium text-fg-muted">{reporter}</strong>
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={onClose} className="btn btn-ghost">
+              ยกเลิก
+            </button>
+            <button
+              type="submit"
+              data-testid="submit-create-issue-btn"
+              disabled={isSaving || isViewOnly || isUploadingFiles}
+              className="btn btn-primary"
+            >
+              {isSaving || isFormattingAi ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isQuestion ? (
+                <MessageCircleQuestion className="h-4 w-4" />
+              ) : (
+                <Check className="h-4 w-4" strokeWidth={2.5} />
+              )}
+              <span>
+                {attachments.length > 0
+                  ? `${isQuestion ? "ส่งคำถาม" : "ส่งเรื่อง"} (แนบ ${attachments.length} ไฟล์)`
+                  : isQuestion
+                    ? "ส่งคำถาม"
+                    : "ส่งเรื่อง"}
+              </span>
+            </button>
           </div>
-        </form>
-      </div>
-    </div>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 
@@ -1160,23 +1011,43 @@ interface McpTokenPublic {
   usageCount: number;
 }
 
-const ROLE_BADGE: Record<
-  McpTokenPublic["agentRole"],
-  { label: string; className: string }
-> = {
-  claude_reviewer: {
-    label: "Antigravity",
-    className: "border-cyan-500/40 bg-cyan-500/15 text-cyan-200",
-  },
-  antigravity_fixer: {
-    label: "Antigravity",
-    className: "border-cyan-500/40 bg-cyan-500/15 text-cyan-200",
-  },
-  admin: {
-    label: "Antigravity",
-    className: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
-  },
-};
+const MCP_TOOLS: Array<{ name: string; desc: string }> = [
+  { name: "get_ai_context", desc: "ดึงคิวรอรีวิว และคิวรอแก้/Deploy เฉพาะโปรเจกต์ที่ระบุ" },
+  { name: "submit_claude_review", desc: "บันทึกผลวิเคราะห์: สั่งแก้ (ready_to_fix) หรือไม่แก้ (wont_fix)" },
+  { name: "claim_for_fix", desc: "รับงานเข้าสู่สถานะกำลังแก้ (fixing)" },
+  { name: "mark_deployed", desc: "บันทึกผลหลังแก้และ Deploy สำเร็จ (deployed)" },
+  { name: "list_projects", desc: "รายชื่อโปรเจกต์ที่ได้รับสิทธิ์ พร้อมจำนวนงานค้าง" },
+  { name: "create_project", desc: "สร้างโปรเจกต์ใหม่หลังถามยืนยันกับผู้ใช้แล้ว" },
+  { name: "list_issues", desc: "ค้นหาและกรอง Issue ตามโปรเจกต์ สถานะ ความสำคัญ" },
+  { name: "get_issue", desc: "อ่านรายละเอียด รูปภาพ ไฟล์แนบ และคำสั่งแก้" },
+  { name: "find_similar_issues", desc: "ค้นหาเรื่องซ้ำก่อนสร้าง Issue ใหม่" },
+  { name: "create_issue", desc: "สร้างเรื่องใหม่พร้อมแนบรูปและไฟล์" },
+  { name: "claim_and_plan_issue", desc: "รับงานพร้อมบันทึกแผนและแตกงานย่อย" },
+  { name: "converse_on_issue", desc: "ตอบกลับ แนบไฟล์ ติ๊กงานย่อย เปลี่ยนสถานะ" },
+  { name: "update_issue_status", desc: "อัปเดตสถานะ ความสำคัญ หรือผู้รับผิดชอบ" },
+  { name: "get_monitor_summary", desc: "สรุป KPI ของโปรเจกต์แบบเรียลไทม์" },
+];
+
+function CopyButton({
+  copied,
+  onClick,
+  label = "คัดลอก",
+  testId,
+  variant = "secondary",
+}: {
+  copied: boolean;
+  onClick: () => void;
+  label?: string;
+  testId?: string;
+  variant?: "secondary" | "primary" | "ghost";
+}) {
+  return (
+    <button type="button" data-testid={testId} onClick={onClick} className={`btn btn-${variant} btn-xs`}>
+      {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? "คัดลอกแล้ว" : label}
+    </button>
+  );
+}
 
 export function AiMcpGuideModal({
   open,
@@ -1199,31 +1070,24 @@ export function AiMcpGuideModal({
   const [testOutput, setTestOutput] = useState<string>("");
   const [isTestingMcp, setIsTestingMcp] = useState<boolean>(false);
 
-  // MCP Token Generator States (Bound to Project + Gmail User ID for Antigravity)
+  // MCP Token Generator States (Bound to Project + Gmail User ID)
   const [tokens, setTokens] = useState<McpTokenPublic[]>([]);
-  const [availableProjects, setAvailableProjects] = useState<
-    Array<{ key: string; name: string }>
-  >(propProjects || []);
+  const [availableProjects, setAvailableProjects] = useState<Array<{ key: string; name: string }>>(
+    propProjects || []
+  );
   const [selectedProjectKey, setSelectedProjectKey] = useState<string>(
     defaultProjectKey && defaultProjectKey !== "ALL"
       ? defaultProjectKey
       : propProjects?.[0]?.key || "DEVOPS"
   );
-  const [allowedUsers, setAllowedUsers] = useState<
-    Array<{ email: string; name: string; role: string }>
-  >([]);
+  const [allowedUsers, setAllowedUsers] = useState<Array<{ email: string; name: string; role: string }>>([]);
   const [ownerEmail, setOwnerEmail] = useState<string>(currentUserEmail || "");
-  const [ownerName, setOwnerName] = useState<string>(
-    currentUserName || "ผู้ใช้งาน (Antigravity)"
-  );
+  const [ownerName, setOwnerName] = useState<string>(currentUserName || "ผู้ใช้งาน (Antigravity)");
   const [newTokenName, setNewTokenName] = useState<string>("Antigravity");
-  const [newTokenRole] =
-    useState<McpTokenPublic["agentRole"]>("antigravity_fixer");
+  const [newTokenRole] = useState<McpTokenPublic["agentRole"]>("antigravity_fixer");
   const [generatedRawToken, setGeneratedRawToken] = useState<string | null>(null);
   const [generatedForEmail, setGeneratedForEmail] = useState<string | null>(null);
-  const [generatedForProject, setGeneratedForProject] = useState<string | null>(
-    null
-  );
+  const [generatedForProject, setGeneratedForProject] = useState<string | null>(null);
   const [isGeneratingToken, setIsGeneratingToken] = useState<boolean>(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
 
@@ -1248,9 +1112,7 @@ export function AiMcpGuideModal({
       if (Array.isArray(data.allowedUsers)) setAllowedUsers(data.allowedUsers);
       if (Array.isArray(data.projects) && data.projects.length > 0) {
         setAvailableProjects(data.projects);
-        setSelectedProjectKey((prev) =>
-          prev && prev !== "ALL" ? prev : data.projects[0].key
-        );
+        setSelectedProjectKey((prev) => (prev && prev !== "ALL" ? prev : data.projects[0].key));
       }
       if (data.currentUser?.email && !currentUserEmail) {
         setOwnerEmail(data.currentUser.email);
@@ -1269,8 +1131,7 @@ export function AiMcpGuideModal({
 
   if (!open) return null;
 
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "https://issue.dedezoom.com";
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://issue.dedezoom.com";
 
   const activeProject =
     selectedProjectKey && selectedProjectKey !== "ALL"
@@ -1289,11 +1150,11 @@ export function AiMcpGuideModal({
     e.preventDefault();
     setTokenError(null);
     if (!activeProject) {
-      setTokenError("กรุณาเลือกโปรเจกต์ (Project) ที่ต้องการผูกกับ MCP Token เพื่อป้องกันความผิดพลาด");
+      setTokenError("กรุณาเลือกโปรเจกต์ที่ต้องการผูกกับ MCP Token เพื่อป้องกันความผิดพลาด");
       return;
     }
     if (!ownerEmail.trim() || !ownerEmail.includes("@")) {
-      setTokenError("กรุณาระบุอีเมล Gmail ที่ได้รับอนุญาตเพื่อผูกเป็นรหัสผู้ใช้งาน (User ID)");
+      setTokenError("กรุณาระบุอีเมล Gmail ที่ได้รับอนุญาตเพื่อผูกเป็นรหัสผู้ใช้งาน");
       return;
     }
     if (!newTokenName.trim()) return;
@@ -1372,8 +1233,7 @@ export function AiMcpGuideModal({
     }
   };
 
-  const activeTokenExample =
-    generatedRawToken || "ism_live_วาง_TOKEN_ที่สร้างจากด้านบน";
+  const activeTokenExample = generatedRawToken || "ism_live_วาง_TOKEN_ที่สร้างจากขั้นที่_1";
   const targetConfigProject = generatedForProject || activeProject;
 
   const mcpHttpConfig = JSON.stringify(
@@ -1418,77 +1278,98 @@ export function AiMcpGuideModal({
   const unmaskedUsers = allowedUsers.filter((u) => !u.email.includes("***"));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
-      onClick={onClose}
-    >
-      <div
-        data-testid="ai-mcp-modal"
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-2xl"
-      >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
-          <div className="flex items-center gap-2 text-sm font-bold text-white">
-            <Terminal className="h-4 w-4 text-cyan-400" />
-            <span>
-              ศูนย์เชื่อมต่อ MCP Server & ตัวสร้าง MCP Token ผูกโปรเจกต์ (สำหรับ Antigravity)
-            </span>
-          </div>
-          <button
-            type="button"
-            data-testid="close-mcp-modal-btn"
-            onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+    <Dialog onClose={onClose} size="xl" testId="ai-mcp-modal" labelledBy="ai-mcp-title">
+      <DialogHeader
+        titleId="ai-mcp-title"
+        icon={<PlugZap className="h-4 w-4 text-sky-300" />}
+        title="เชื่อมต่อ AI ผ่าน MCP"
+        subtitle="ให้ AI (Antigravity / Claude Code / Codex) ดึงงานของโปรเจกต์ไปตรวจสอบ แก้ไข และรายงานผลกลับอัตโนมัติ"
+        onClose={onClose}
+        closeTestId="close-mcp-modal-btn"
+        actions={
+          <span
+            data-testid="mcp-token-always-required"
+            className="pill hidden bg-emerald-400/10 text-emerald-200 ring-emerald-400/25 sm:inline-flex"
+            title="ทุกการเรียก MCP ต้องใช้ Token ที่ผูกกับโปรเจกต์เสมอ"
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            ต้องใช้ Token ทุกครั้ง
+          </span>
+        }
+      />
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs text-slate-300">
-          {/* Section 1: MCP API Token Generator & Project Binding */}
-          <div
-            data-testid="mcp-token-generator-section"
-            className="rounded-xl border border-emerald-500/35 bg-gradient-to-br from-emerald-950/25 via-slate-950/90 to-slate-900/90 p-4 space-y-3.5"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-emerald-400" />
-                <div>
-                  <h4 className="text-sm font-bold text-white">
-                    ตัวสร้าง MCP API Token ผูกกับโปรเจกต์ (Project-Bound) & Gmail
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    ทุก MCP Token จะถูกล็อกเข้ากับ{" "}
-                    <strong className="text-amber-300">รหัสโปรเจกต์ (Project Key)</strong>{" "}
-                    เพื่อป้องกัน Antigravity ดึงหรือแก้ไข Issue ผิดโปรเจกต์โดยเด็ดขาด
-                  </p>
-                </div>
+      <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6 sm:px-6">
+        {/* Step 1: Token generator */}
+        <section data-testid="mcp-token-generator-section">
+          <SectionHeading
+            step={1}
+            title="สร้าง Token ผูกกับโปรเจกต์"
+            hint="Token จะล็อกไว้กับโปรเจกต์และ Gmail ที่เลือก — AI จะดึงหรือแก้เรื่องข้ามโปรเจกต์ไม่ได้"
+          />
+
+          <form onSubmit={handleGenerateToken} className="card-inset space-y-3 p-4">
+            {tokenError && (
+              <Notice tone="error" icon={<CircleAlert className="h-4 w-4 text-rose-300" />}>
+                {tokenError}
+              </Notice>
+            )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+              <div className="sm:col-span-4">
+                <label className="field-label" htmlFor="mcp-project">
+                  โปรเจกต์ <span className="text-rose-300">*</span>
+                </label>
+                <select
+                  id="mcp-project"
+                  data-testid="mcp-token-project-select"
+                  value={activeProject}
+                  onChange={(e) => setSelectedProjectKey(e.target.value)}
+                  className="select font-medium"
+                >
+                  {availableProjects.map((p) => (
+                    <option key={p.key} value={p.key}>
+                      {p.name} · {p.key}
+                    </option>
+                  ))}
+                </select>
               </div>
-
-              <span
-                data-testid="mcp-token-always-required"
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5"
-              >
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-[11px] font-semibold text-emerald-200">
-                  บังคับใช้ Token ทุกครั้ง
-                </span>
-              </span>
+              <div className="sm:col-span-5">
+                <label className="field-label" htmlFor="mcp-gmail">
+                  Gmail ที่ได้รับอนุญาต <span className="text-rose-300">*</span>
+                </label>
+                <input
+                  id="mcp-gmail"
+                  type="email"
+                  required
+                  data-testid="mcp-token-gmail-input"
+                  value={ownerEmail}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="name@gmail.com"
+                  className="input font-mono text-xs"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="field-label" htmlFor="mcp-name">
+                  ชื่อเครื่อง / Agent <span className="text-rose-300">*</span>
+                </label>
+                <input
+                  id="mcp-name"
+                  type="text"
+                  required
+                  data-testid="mcp-token-name-input"
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  placeholder="เช่น Antigravity"
+                  className="input"
+                />
+              </div>
             </div>
 
-            <form onSubmit={handleGenerateToken} className="space-y-3">
-              {tokenError && (
-                <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-300">
-                  {tokenError}
-                </div>
-              )}
-
-              {unmaskedUsers.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-slate-400 mr-1">
-                    เลือก Gmail ที่ได้รับอนุญาต:
-                  </span>
-                  {unmaskedUsers.map((u) => (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {unmaskedUsers.length > 0 ? (
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-fg-subtle">เลือกเร็ว:</span>
+                  {unmaskedUsers.slice(0, 4).map((u) => (
                     <button
                       key={u.email}
                       type="button"
@@ -1497,443 +1378,253 @@ export function AiMcpGuideModal({
                         setOwnerName(u.name);
                         setNewTokenName(`Antigravity (${activeProject})`);
                       }}
-                      className="rounded-md border border-slate-700 bg-slate-800/90 px-2.5 py-1 text-[11px] text-slate-200 hover:border-emerald-500/50 hover:text-emerald-300 cursor-pointer"
+                      className="pill cursor-pointer bg-white/[0.04] text-fg-muted ring-line transition hover:text-fg hover:ring-line-strong"
                     >
-                      + {u.name} ({u.email})
+                      {u.name}
                     </button>
                   ))}
                 </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-12">
-                <div className="sm:col-span-3">
-                  <label className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-amber-300">
-                    <FolderKanban className="h-3.5 w-3.5" />
-                    <span>ระบุโปรเจกต์ (กันพลาด) *</span>
-                  </label>
-                  <select
-                    data-testid="mcp-token-project-select"
-                    value={activeProject}
-                    onChange={(e) => setSelectedProjectKey(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-amber-500/50 bg-slate-950 px-2.5 font-mono text-xs font-bold text-amber-300 focus:border-amber-400 focus:outline-none"
-                  >
-                    {availableProjects.map((p) => (
-                      <option key={p.key} value={p.key}>
-                        [{p.key}] {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="sm:col-span-4">
-                  <label className="mb-1 block text-[11px] font-semibold text-emerald-300">
-                    อีเมล Gmail ที่ได้รับอนุญาต *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    data-testid="mcp-token-gmail-input"
-                    value={ownerEmail}
-                    onChange={(e) => setOwnerEmail(e.target.value)}
-                    placeholder="กรอก Gmail ที่มีสิทธิ์..."
-                    className="h-9 w-full rounded-lg border border-emerald-500/40 bg-slate-950 px-3 font-mono text-xs text-emerald-200 focus:border-emerald-400 focus:outline-none"
-                  />
-                </div>
-
-                <div className="sm:col-span-3">
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-300">
-                    ชื่อเครื่อง / Agent (Antigravity) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    data-testid="mcp-token-name-input"
-                    value={newTokenName}
-                    onChange={(e) => setNewTokenName(e.target.value)}
-                    placeholder="เช่น Antigravity"
-                    className="h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-
-                <div className="sm:col-span-2 flex items-end">
-                  <button
-                    type="submit"
-                    data-testid="generate-mcp-token-btn"
-                    disabled={isGeneratingToken}
-                    className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white shadow hover:bg-emerald-500 disabled:opacity-50 cursor-pointer whitespace-nowrap"
-                  >
-                    {isGeneratingToken ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <KeyRound className="h-3.5 w-3.5" />
-                    )}
-                    <span>สร้าง Token</span>
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* Newly Generated Raw Token Display Box */}
-            {generatedRawToken && (
-              <div
-                data-testid="generated-token-banner"
-                className="rounded-lg border border-emerald-400/60 bg-emerald-950/50 p-3 space-y-1.5"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-emerald-300">
-                    ✅ สร้าง MCP Token ล็อกเฉพาะโปรเจกต์{" "}
-                    <code className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300 border border-amber-500/40">
-                      [{generatedForProject}]
-                    </code>{" "}
-                    ผูกกับ Gmail{" "}
-                    <code className="rounded bg-slate-950 px-1.5 py-0.5 text-white">
-                      {generatedForEmail}
-                    </code>{" "}
-                    สำเร็จ!
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="copy-generated-token-btn"
-                    onClick={() => copyText("raw-token", generatedRawToken)}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-bold text-white hover:bg-emerald-500 cursor-pointer"
-                  >
-                    {copiedKey === "raw-token" ? (
-                      <>
-                        <Check className="h-3.5 w-3.5" /> คัดลอกแล้ว
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3.5 w-3.5" /> คัดลอก Token
-                      </>
-                    )}
-                  </button>
-                </div>
-                <code
-                  data-testid="generated-raw-token-value"
-                  className="block w-full select-all rounded bg-slate-950 px-3 py-2 font-mono text-xs font-bold text-emerald-300 border border-emerald-500/30"
-                >
-                  {generatedRawToken}
-                </code>
-              </div>
-            )}
-
-            {/* Existing Tokens List */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
-                <span>รายการ MCP Token ที่ผูกกับโปรเจกต์และ Gmail ({tokens.length})</span>
-                <span>โปรเจกต์ · รหัส User (Gmail) · จำนวนครั้งที่เรียกใช้</span>
-              </div>
-
-              {tokens.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/60 py-4 text-center text-xs text-slate-400">
-                  ยังไม่มี MCP Token — เลือกโปรเจกต์และกรอกอีเมล Gmail แล้วกดปุ่ม{" "}
-                  <strong>&ldquo;สร้าง Token&rdquo;</strong> ด้านบน
-                </div>
               ) : (
-                <div className="divide-y divide-slate-800/80 rounded-lg border border-slate-800 bg-slate-950/90">
-                  {tokens.map((tok) => {
-                    const roleCfg = ROLE_BADGE[tok.agentRole] || ROLE_BADGE.admin;
-                    return (
-                      <div
-                        key={tok.id}
-                        data-testid={`mcp-token-row-${tok.id}`}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-2 min-w-0">
-                          <span
-                            data-testid={`token-project-${tok.id}`}
-                            className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[11px] font-bold text-amber-300"
-                            title={`ล็อกเฉพาะโปรเจกต์: ${tok.projectKey}`}
-                          >
-                            📁 {tok.projectKey}
-                          </span>
-                          <span
-                            data-testid={`token-gmail-${tok.id}`}
-                            className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-300"
-                            title={`รหัส User (Gmail): ${tok.ownerEmail}`}
-                          >
-                            📧 {tok.ownerEmail}
-                          </span>
-                          <span className="font-bold text-white truncate">{tok.name}</span>
-                          <span
-                            className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold ${roleCfg.className}`}
-                          >
-                            {roleCfg.label}
-                          </span>
-                          <code className="rounded bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-300 border border-slate-800">
-                            {tok.maskedToken}
-                          </code>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-[11px] text-slate-400">
-                            เรียกใช้:{" "}
-                            <strong
-                              data-testid={`token-usage-${tok.id}`}
-                              className="text-emerald-400 font-mono"
-                            >
-                              {tok.usageCount}
-                            </strong>{" "}
-                            ครั้ง
-                            {tok.lastUsedAt && (
-                              <span className="ml-1.5 text-slate-500">
-                                (ล่าสุด{" "}
-                                {new Date(tok.lastUsedAt).toLocaleTimeString("th-TH", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                                )
-                              </span>
-                            )}
-                          </span>
-
-                          <button
-                            type="button"
-                            data-testid={`revoke-token-btn-${tok.id}`}
-                            onClick={() => handleRevokeToken(tok.id)}
-                            className="inline-flex items-center gap-1 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/25 cursor-pointer"
-                            title="ยกเลิก Token นี้"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span>ยกเลิก</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <span />
               )}
-            </div>
-          </div>
-
-          {/* Section 2: Ready-to-Copy Prompt for Antigravity on a New Project / New Session */}
-          <div
-            data-testid="new-session-antigravity-prompt-section"
-            className="rounded-xl border border-amber-500/35 bg-amber-950/20 p-4 space-y-2.5"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <MessageSquareCode className="h-4 w-4 text-amber-400" />
-                <div>
-                  <h4 className="text-xs font-bold text-amber-300">
-                    วิธีสั่ง Prompt ให้กับ Antigravity สำหรับโปรเจกต์ [{targetConfigProject}] (เมื่อเปิด Session ใหม่)
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    คัดลอกข้อความด้านล่างไปวางในหน้าแชท Antigravity เมื่อเปิดโปรเจกต์ใหม่ เพื่อให้ดึงและแก้ไขงานถูกโปรเจกต์ 100%
-                  </p>
-                </div>
-              </div>
               <button
-                type="button"
-                data-testid="copy-new-session-prompt-btn"
-                onClick={() => copyText("new-session-prompt", newSessionAntigravityPrompt)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-500 cursor-pointer"
+                type="submit"
+                data-testid="generate-mcp-token-btn"
+                disabled={isGeneratingToken}
+                className="btn btn-primary btn-sm"
               >
-                {copiedKey === "new-session-prompt" ? (
-                  <>
-                    <Check className="h-3.5 w-3.5" /> คัดลอก Prompt แล้ว
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5" /> คัดลอก Prompt สั่ง Antigravity
-                  </>
-                )}
+                {isGeneratingToken ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                สร้าง Token
               </button>
             </div>
-            <pre
-              data-testid="new-session-antigravity-prompt"
-              className="whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] text-amber-200 leading-relaxed"
+          </form>
+
+          {generatedRawToken && (
+            <div
+              data-testid="generated-token-banner"
+              className="mt-3 animate-scale-in rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] p-4"
             >
-              {newSessionAntigravityPrompt}
-            </pre>
-          </div>
-
-          {/* Live AI MCP Playground */}
-          <div className="rounded-xl border border-cyan-500/35 bg-cyan-950/20 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="font-semibold text-cyan-200 flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4 text-cyan-400" />
-                  <span>
-                    สนามทดสอบ Antigravity MCP สด (โปรเจกต์ [{targetConfigProject}])
-                  </span>
-                </h4>
-                <p className="text-[11px] text-slate-400">
-                  กดปุ่มด้านล่างเพื่อยิง JSON-RPC ไปยัง{" "}
-                  <code>/api/mcp?project={targetConfigProject}</code> และดูผลลัพธ์จริงได้ทันที
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] text-emerald-100">
+                  สร้าง Token สำเร็จ — ล็อกโปรเจกต์ <strong className="font-semibold">{generatedForProject}</strong> ·{" "}
+                  <span className="font-mono text-xs">{generatedForEmail}</span>
                 </p>
+                <CopyButton
+                  testId="copy-generated-token-btn"
+                  copied={copiedKey === "raw-token"}
+                  onClick={() => copyText("raw-token", generatedRawToken)}
+                  label="คัดลอก Token"
+                  variant="primary"
+                />
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="mcp-test-context-btn"
-                  disabled={isTestingMcp || !generatedRawToken}
-                  onClick={() =>
-                    runLiveMcpToolCall("get_ai_context", {
-                      projectKey: targetConfigProject,
-                    })
-                  }
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30 cursor-pointer"
-                >
-                  <Play className="h-3 w-3" /> 1. ดึงคิวงาน [{targetConfigProject}] (get_ai_context)
-                </button>
-                <button
-                  type="button"
-                  data-testid="mcp-test-converse-btn"
-                  disabled={isTestingMcp || !generatedRawToken}
-                  onClick={() =>
-                    runLiveMcpToolCall("list_issues", {
-                      projectKey: targetConfigProject,
-                    })
-                  }
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-3 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/30 cursor-pointer"
-                >
-                  <Play className="h-3 w-3" /> 2. ดูรายการ Issue ใน [{targetConfigProject}]
-                </button>
-              </div>
-            </div>
-
-            {testOutput && (
-              <pre
-                data-testid="mcp-test-output"
-                className="max-h-48 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] text-emerald-300"
+              <code
+                data-testid="generated-raw-token-value"
+                className="mt-2.5 block w-full rounded-lg border border-line bg-black/40 px-3 py-2 font-mono text-xs break-all text-emerald-200 select-all"
               >
-                {testOutput}
-              </pre>
+                {generatedRawToken}
+              </code>
+              <p className="mt-2 text-xs text-emerald-200/70">
+                เก็บ Token นี้ไว้ให้ดี — ระบบจะแสดงเต็มเพียงครั้งเดียว
+              </p>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <p className="mb-2 text-xs text-fg-subtle">Token ที่ใช้งานอยู่ ({tokens.length})</p>
+            {tokens.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line py-5 text-center text-xs text-fg-subtle">
+                ยังไม่มี Token — กรอกข้อมูลด้านบนแล้วกด “สร้าง Token”
+              </div>
+            ) : (
+              <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                {tokens.map((tok) => (
+                  <div
+                    key={tok.id}
+                    data-testid={`mcp-token-row-${tok.id}`}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-white/[0.015] px-3.5 py-2.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[13px] font-medium text-fg">{tok.name}</span>
+                        <span
+                          data-testid={`token-project-${tok.id}`}
+                          className="pill h-5 bg-white/[0.05] px-2 font-mono text-[11px] text-fg-muted ring-line"
+                          title={`ล็อกเฉพาะโปรเจกต์: ${tok.projectKey}`}
+                        >
+                          {tok.projectKey}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fg-subtle">
+                        <span data-testid={`token-gmail-${tok.id}`} className="font-mono" title={`Gmail: ${tok.ownerEmail}`}>
+                          {tok.ownerEmail}
+                        </span>
+                        <span>·</span>
+                        <code className="font-mono">{tok.maskedToken}</code>
+                      </div>
+                    </div>
+                    <span className="text-xs text-fg-subtle">
+                      เรียกใช้{" "}
+                      <strong data-testid={`token-usage-${tok.id}`} className="font-semibold text-fg-muted tabular-nums">
+                        {tok.usageCount}
+                      </strong>{" "}
+                      ครั้ง
+                      {tok.lastUsedAt && (
+                        <span className="ml-1">
+                          · ล่าสุด{" "}
+                          {new Date(tok.lastUsedAt).toLocaleTimeString("th-TH", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid={`revoke-token-btn-${tok.id}`}
+                      onClick={() => handleRevokeToken(tok.id)}
+                      className="btn btn-ghost btn-xs hover:!text-rose-300"
+                      title="ยกเลิก Token นี้"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      ยกเลิก
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3.5">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-semibold text-emerald-400">
-                  1. เชื่อมต่อผ่าน HTTP + Project Header (แนะนำสำหรับ Antigravity)
+        {/* Step 2: Config */}
+        <section>
+          <SectionHeading
+            step={2}
+            title="ใส่การตั้งค่าในเครื่องมือ AI"
+            hint="คัดลอกไปวางใน mcp_config.json / .mcp.json — เลือกแบบใดแบบหนึ่ง"
+          />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="card-inset overflow-hidden">
+              <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
+                <span className="text-xs font-medium text-fg">
+                  แบบที่ 1 · HTTP + Header <span className="font-normal text-emerald-300">(แนะนำ)</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => copyText("http", mcpHttpConfig)}
-                  className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700 cursor-pointer"
-                >
-                  {copiedKey === "http" ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                  คัดลอก
-                </button>
+                <CopyButton copied={copiedKey === "http"} onClick={() => copyText("http", mcpHttpConfig)} variant="ghost" />
               </div>
               <pre
                 data-testid="mcp-http-config-box"
-                className="overflow-x-auto rounded bg-slate-900 p-2.5 font-mono text-[11px] text-slate-200"
+                className="overflow-x-auto p-3.5 font-mono text-[11px] leading-relaxed text-fg-muted"
               >
                 {mcpHttpConfig}
               </pre>
             </div>
-
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3.5">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-semibold text-cyan-400">
-                  2. เชื่อมต่อผ่าน URL Query (?project={targetConfigProject}&token=...)
-                </span>
-                <button
-                  type="button"
+            <div className="card-inset overflow-hidden">
+              <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
+                <span className="text-xs font-medium text-fg">แบบที่ 2 · URL Query</span>
+                <CopyButton
+                  copied={copiedKey === "url-query"}
                   onClick={() => copyText("url-query", mcpUrlQueryConfig)}
-                  className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700 cursor-pointer"
-                >
-                  {copiedKey === "url-query" ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                  คัดลอก
-                </button>
+                  variant="ghost"
+                />
               </div>
               <pre
                 data-testid="mcp-url-query-config-box"
-                className="overflow-x-auto rounded bg-slate-900 p-2.5 font-mono text-[11px] text-slate-200"
+                className="overflow-x-auto p-3.5 font-mono text-[11px] leading-relaxed text-fg-muted"
               >
                 {mcpUrlQueryConfig}
               </pre>
             </div>
           </div>
+        </section>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-950 p-3.5">
-            <h4 className="mb-2 font-semibold text-white">
-              รายการ MCP Tools สำหรับ Antigravity (ทุกรายการล็อกตามโปรเจกต์เพื่อกันพลาด):
-            </h4>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {[
-                {
-                  name: "get_ai_context",
-                  desc: "ดึงคิวรอ Antigravity รีวิว และคิวรอแก้/Deploy เฉพาะโปรเจกต์ที่ระบุ",
-                },
-                {
-                  name: "submit_claude_review",
-                  desc: "Antigravity บันทึกผลวิเคราะห์: สั่งแก้ (ready_to_fix) หรือ ไม่แก้ (wont_fix)",
-                },
-                {
-                  name: "claim_for_fix",
-                  desc: "Antigravity รับงานเข้าสู่สถานะ กำลังแก้ (fixing)",
-                },
-                {
-                  name: "mark_deployed",
-                  desc: "Antigravity บันทึกผลหลังแก้และ Deploy ขึ้นเซิร์ฟเวอร์สำเร็จ (deployed)",
-                },
-                {
-                  name: "list_projects",
-                  desc: "ดึงรายชื่อโปรเจกต์ทั้งหมดที่ได้รับสิทธิ์พร้อมจำนวนงานค้าง",
-                },
-                {
-                  name: "create_project",
-                  desc: "สร้างโปรเจกต์ใหม่หลังจากถามยืนยันรหัส ชื่อ และคำอธิบายกับผู้ใช้แล้ว",
-                },
-                {
-                  name: "list_issues",
-                  desc: "ค้นหาและกรอง Issue ตามโปรเจกต์ สถานะ และความสำคัญ",
-                },
-                {
-                  name: "get_issue",
-                  desc: "อ่านข้อมูลเชิงลึกของ Issue รูปภาพ ไฟล์แนบ และคำสั่งแก้",
-                },
-                {
-                  name: "find_similar_issues",
-                  desc: "ค้นหาเรื่องซ้ำซ้อนหรือใกล้เคียงก่อนตั้ง Issue ใหม่",
-                },
-                {
-                  name: "create_issue",
-                  desc: "สร้างรายการปัญหาใหม่พร้อมแนบรูปภาพและไฟล์เข้า MinIO อัตโนมัติ",
-                },
-                {
-                  name: "claim_and_plan_issue",
-                  desc: "รับงานพร้อมบันทึกแผนการแก้ไขและแตก Subtasks อัตโนมัติ",
-                },
-                {
-                  name: "converse_on_issue",
-                  desc: "ให้ Antigravity พูดคุยตอบกลับ แนบไฟล์ ติ๊กงานย่อย และเปลี่ยนสถานะ",
-                },
-                {
-                  name: "update_issue_status",
-                  desc: "อัปเดตสถานะ ระดับความสำคัญ ผู้รับผิดชอบ หรือสรุป AI",
-                },
-                {
-                  name: "get_monitor_summary",
-                  desc: "ดึงสรุป KPI ของโปรเจกต์แบบเรียลไทม์",
-                },
-              ].map((t) => (
-                <div
-                  key={t.name}
-                  className="flex items-center justify-between gap-2 rounded border border-slate-800/90 bg-slate-900/70 px-2.5 py-1.5"
-                >
-                  <code className="font-mono font-semibold text-emerald-400 shrink-0">
-                    {t.name}
-                  </code>
-                  <span className="truncate text-[11px] text-slate-400">{t.desc}</span>
-                </div>
-              ))}
-            </div>
+        {/* Step 3: Prompt */}
+        <section data-testid="new-session-antigravity-prompt-section">
+          <SectionHeading
+            step={3}
+            title={`คัดลอกคำสั่งเริ่มงานให้ AI (โปรเจกต์ ${targetConfigProject})`}
+            hint="วางในแชทของ AI เมื่อเปิด Session ใหม่ เพื่อให้ดึงและแก้งานถูกโปรเจกต์"
+            right={
+              <CopyButton
+                testId="copy-new-session-prompt-btn"
+                copied={copiedKey === "new-session-prompt"}
+                onClick={() => copyText("new-session-prompt", newSessionAntigravityPrompt)}
+                label="คัดลอกคำสั่ง"
+                variant="primary"
+              />
+            }
+          />
+          <pre
+            data-testid="new-session-antigravity-prompt"
+            className="max-h-56 overflow-y-auto rounded-xl border border-line bg-black/30 p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg-muted"
+          >
+            {newSessionAntigravityPrompt}
+          </pre>
+        </section>
+
+        {/* Step 4: Test */}
+        <section>
+          <SectionHeading
+            step={4}
+            title="ทดสอบการเชื่อมต่อ"
+            hint={
+              generatedRawToken
+                ? `ยิงคำสั่งจริงไปที่ /api/mcp?project=${targetConfigProject}`
+                : "สร้าง Token ในขั้นที่ 1 ก่อน แล้วจึงทดสอบได้"
+            }
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="mcp-test-context-btn"
+              disabled={isTestingMcp || !generatedRawToken}
+              onClick={() => runLiveMcpToolCall("get_ai_context", { projectKey: targetConfigProject })}
+              className="btn btn-secondary btn-sm"
+            >
+              {isTestingMcp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              ดึงคิวงาน (get_ai_context)
+            </button>
+            <button
+              type="button"
+              data-testid="mcp-test-converse-btn"
+              disabled={isTestingMcp || !generatedRawToken}
+              onClick={() => runLiveMcpToolCall("list_issues", { projectKey: targetConfigProject })}
+              className="btn btn-secondary btn-sm"
+            >
+              <Play className="h-3.5 w-3.5" />
+              ดูรายการเรื่อง (list_issues)
+            </button>
           </div>
-        </div>
+          {testOutput && (
+            <pre
+              data-testid="mcp-test-output"
+              className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-line bg-black/40 p-3.5 font-mono text-[11px] leading-relaxed text-emerald-200"
+            >
+              {testOutput}
+            </pre>
+          )}
+        </section>
+
+        {/* Tool reference */}
+        <details className="group rounded-xl border border-line bg-white/[0.02]">
+          <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg-muted select-none hover:text-fg">
+            <MessageSquareCode className="h-4 w-4 text-fg-subtle" />
+            <span className="flex-1">เครื่องมือ MCP ทั้งหมด ({MCP_TOOLS.length} รายการ · ล็อกตามโปรเจกต์)</span>
+            <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
+          </summary>
+          <div className="grid grid-cols-1 gap-x-6 gap-y-2 border-t border-line px-4 py-3.5 sm:grid-cols-2">
+            {MCP_TOOLS.map((t) => (
+              <div key={t.name} className="min-w-0">
+                <code className="font-mono text-xs text-emerald-300">{t.name}</code>
+                <p className="text-xs text-fg-subtle">{t.desc}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+
+        <p className="flex items-center gap-1.5 text-xs text-fg-subtle">
+          <Wrench className="h-3.5 w-3.5" />
+          เฉพาะทีมพัฒนาและผู้ดูแลโปรเจกต์เท่านั้นที่สร้าง Token ได้
+        </p>
       </div>
-    </div>
+    </Dialog>
   );
 }

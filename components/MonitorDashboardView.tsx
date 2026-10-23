@@ -2,22 +2,18 @@
 
 import React from "react";
 import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Flame,
   RefreshCw,
-  CheckSquare,
-  Layers,
   Database,
-  Siren,
-  Eye,
-  ClipboardCheck,
-  Wrench,
-  XCircle,
-  Sparkles,
-  Rocket,
+  ChevronRight,
+  Flame,
+  Layers,
+  Inbox,
+  Target,
+  Clock3,
+  Users,
+  ListTodo,
+  FolderKanban,
+  Shapes,
 } from "lucide-react";
 import type {
   IssuePriority,
@@ -29,9 +25,14 @@ import type {
 import {
   PriorityBadge,
   StatusBadge,
-  TypeBadge,
   TYPE_CONFIG,
+  TYPE_ORDER,
+  STATUS_CONFIG,
+  TONE,
+  Avatar,
+  formatRelativeTime,
   formatThaiDateTime,
+  type Tone,
 } from "./ui/Badges";
 
 export interface MonitorDrillDown {
@@ -39,6 +40,72 @@ export interface MonitorDrillDown {
   priority?: IssuePriority | "all";
   type?: IssueType | "all";
   projectKey?: string;
+}
+
+function CardTitle({
+  icon: Icon,
+  title,
+  right,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+        <Icon className="h-4 w-4 text-fg-subtle" />
+        {title}
+      </h3>
+      {right}
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  tone = "zinc",
+  onClick,
+  valueTestId,
+  subTestId,
+  children,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: Tone;
+  onClick?: () => void;
+  valueTestId?: string;
+  subTestId?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="card group flex cursor-pointer flex-col p-4 text-left transition hover:border-line-strong hover:bg-raised/60 sm:p-5"
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] text-fg-muted">{label}</span>
+        <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${TONE[tone].soft}`}>
+          <Icon className={`h-4 w-4 ${TONE[tone].text}`} />
+        </span>
+      </div>
+      <p data-testid={valueTestId} className="mt-3 text-3xl font-semibold tracking-tight text-fg tabular-nums">
+        {value}
+      </p>
+      {children}
+      {sub && (
+        <p data-testid={subTestId} className="mt-1.5 text-xs text-fg-subtle">
+          {sub}
+        </p>
+      )}
+    </button>
+  );
 }
 
 export function MonitorDashboardView({
@@ -60,307 +127,279 @@ export function MonitorDashboardView({
 }) {
   if (!stats) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-slate-400">
-        กำลังโหลดข้อมูล DevOps Monitor...
+      <div className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-6">
+        <div className="skeleton h-8 w-64" />
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-32 rounded-2xl" />
+          ))}
+        </div>
+        <div className="skeleton h-40 rounded-2xl" />
       </div>
     );
   }
 
   const pendingReviewTotal = stats.openIssues + stats.reviewingIssues;
-  const readyAndFixingIssues = issues
+  const unresolved = pendingReviewTotal + stats.readyToFixIssues + stats.fixingIssues;
+  const queue = issues
     .filter((i) => i.status === "ready_to_fix" || i.status === "fixing" || i.status === "open")
     .slice(0, 8);
+  const maxTypeCount = Math.max(1, ...TYPE_ORDER.map((t) => stats.byType[t] || 0));
+
+  const pipeline: Array<{
+    key: IssueStatusFilter;
+    label: string;
+    hint: string;
+    value: number;
+    tone: Tone;
+    testId: string;
+  }> = [
+    {
+      key: "pending_review",
+      label: "รอตรวจสอบ",
+      hint: `รอ ${stats.openIssues} · กำลังตรวจ ${stats.reviewingIssues}`,
+      value: pendingReviewTotal,
+      tone: "amber",
+      testId: "kpi-open",
+    },
+    {
+      key: "ready_to_fix",
+      label: "รอแก้ไข",
+      hint: "ตรวจสอบแล้ว อยู่ในคิว",
+      value: stats.readyToFixIssues,
+      tone: "sky",
+      testId: "kpi-ready-to-fix",
+    },
+    {
+      key: "fixing",
+      label: "กำลังแก้ไข",
+      hint: `งานย่อย ${stats.subtasksCompleted}/${stats.subtasksTotal}`,
+      value: stats.fixingIssues,
+      tone: "blue",
+      testId: "kpi-fixing",
+    },
+    {
+      key: "deployed",
+      label: "เสร็จแล้ว",
+      hint: `อัตราจบงาน ${stats.resolutionRatePct}%`,
+      value: stats.deployedIssues,
+      tone: "emerald",
+      testId: "kpi-closed",
+    },
+  ];
 
   return (
-    <div className="h-full overflow-y-auto p-5 space-y-5">
-      {/* Header Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 px-5 py-4">
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-emerald-400 shadow-inner">
-            <Activity className="h-6 w-6" />
-          </div>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-6">
+        {/* Header */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-base font-bold text-white">
-                ศูนย์ควบคุมแจ้งปัญหา &amp; Antigravity Pipeline (รีวิว &rarr; แก้ไข &rarr; Deploy)
-              </h2>
-              <span className="inline-flex h-5 items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 text-[11px] font-medium text-emerald-300">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                Live Pipeline
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-semibold tracking-tight text-fg">ภาพรวมความคืบหน้า</h2>
+              <span className="pill bg-emerald-400/10 text-emerald-200 ring-emerald-400/25">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                </span>
+                อัปเดตอัตโนมัติ
               </span>
             </div>
-            <p className="text-xs text-slate-400">
-              1. แจ้งปัญหา (`open`) &rarr; 2. Antigravity รีวิว (`reviewing`) &rarr; 3. สั่งแก้ (`ready_to_fix`) หรือ ไม่แก้ (`wont_fix`) &rarr; 4. Antigravity แก้และ Deploy (`fixing` &rarr; `deployed`)
+            <p className="mt-1 text-[13px] text-fg-muted">
+              ติดตามทุกเรื่องตั้งแต่รับแจ้ง ตรวจสอบ แก้ไข จนเสร็จเรียบร้อย — คลิกตัวเลขเพื่อดูรายการ
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {onReseedSampleData && (
+          <div className="flex items-center gap-2">
+            {onReseedSampleData && (
+              <button
+                type="button"
+                onClick={onReseedSampleData}
+                data-testid="reseed-sample-btn"
+                className="btn btn-ghost btn-sm text-rose-300 hover:text-rose-200"
+                title="ล้างข้อมูล Issues ทั้งหมด (เฉพาะผู้ดูแลระบบ)"
+              >
+                <Database className="h-3.5 w-3.5" />
+                <span>ล้างข้อมูลทั้งหมด</span>
+              </button>
+            )}
             <button
               type="button"
-              onClick={onReseedSampleData}
-              data-testid="reseed-sample-btn"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-teal-500/40 bg-teal-500/15 px-3.5 text-xs font-medium text-teal-200 transition hover:bg-teal-500/25"
+              onClick={onRefresh}
+              data-testid="monitor-refresh-btn"
+              className="btn btn-secondary btn-sm"
             >
-              <Database className="h-3.5 w-3.5 text-teal-300" />
-              <span>รีเซ็ตข้อมูลตัวอย่าง DevOps</span>
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin text-emerald-400" : ""}`} />
+              <span>รีเฟรช</span>
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onRefresh}
-            data-testid="monitor-refresh-btn"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/90 px-3.5 text-xs font-medium text-slate-200 transition hover:border-emerald-500/50 hover:text-emerald-300"
+          </div>
+        </div>
+
+        {/* Summary tiles */}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <StatTile
+            label="เรื่องทั้งหมด"
+            value={stats.totalIssues}
+            icon={Layers}
+            onClick={() => onDrillDown?.({ status: "all", priority: "all", type: "all" })}
+            valueTestId="kpi-total"
+            subTestId="kpi-biz-devops"
+            sub={`ระบบล่ม/เหตุด่วนที่เปิดอยู่ ${stats.activeIncidentsCount} เรื่อง`}
+          />
+          <StatTile
+            label="ยังไม่ปิด"
+            value={unresolved}
+            icon={Inbox}
+            tone="amber"
+            onClick={() => onDrillDown?.({ status: "active", priority: "all", type: "all" })}
+            sub={`รอตรวจสอบ ${pendingReviewTotal} · อยู่ระหว่างแก้ไข ${stats.readyToFixIssues + stats.fixingIssues}`}
+          />
+          <StatTile
+            label="อัตราจบงาน"
+            value={`${stats.resolutionRatePct}%`}
+            icon={Target}
+            tone="emerald"
+            onClick={() => onDrillDown?.({ status: "deployed", priority: "all", type: "all" })}
+            sub={`เสร็จแล้ว ${stats.deployedIssues} · ไม่แก้ไข ${stats.wontFixIssues}`}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin text-emerald-400" : ""}`} />
-            <span>อัปเดตข้อมูลล่าสุด</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Top 6 Pipeline KPI Cards */}
-      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-6">
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "all", priority: "all", type: "all" })}
-          className="group rounded-xl border border-slate-800 bg-slate-900/90 p-4 text-left transition hover:border-slate-600 hover:bg-slate-800/70"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-300">ทั้งหมดในระบบ</span>
-            <Layers className="h-4 w-4 text-slate-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-white" data-testid="kpi-total">
-            {stats.totalIssues}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400" data-testid="kpi-biz-devops">
-            Incident เปิดอยู่ {stats.activeIncidentsCount} รายการ
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "pending_review", priority: "all", type: "all" })}
-          className="group rounded-xl border border-amber-500/30 bg-amber-950/15 p-4 text-left transition hover:border-amber-400/60 hover:bg-amber-950/25"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-amber-300">1-2. รอรีวิว (Antigravity)</span>
-            <Eye className="h-4 w-4 text-amber-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-amber-400" data-testid="kpi-open">
-            {pendingReviewTotal}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400">
-            รอรีวิว {stats.openIssues} • กำลังรีวิว {stats.reviewingIssues}
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "ready_to_fix", priority: "all", type: "all" })}
-          className="group rounded-xl border border-cyan-500/35 bg-cyan-950/20 p-4 text-left transition hover:border-cyan-400/60 hover:bg-cyan-950/30"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-cyan-300">3. รอแก้ (Antigravity)</span>
-            <ClipboardCheck className="h-4 w-4 text-cyan-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-cyan-300" data-testid="kpi-ready-to-fix">
-            {stats.readyToFixIssues}
-          </p>
-          <p className="mt-1 text-[11px] text-cyan-200/80">
-            รีวิวแล้ว มีคำสั่งแก้พร้อมดึง
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "fixing", priority: "all", type: "all" })}
-          className="group rounded-xl border border-sky-500/30 bg-slate-900/90 p-4 text-left transition hover:border-sky-400/60 hover:bg-slate-800/70"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-sky-300">4. กำลังแก้ / Deploy</span>
-            <Wrench className="h-4 w-4 text-sky-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-sky-400" data-testid="kpi-fixing">
-            {stats.fixingIssues}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400">
-            งานย่อย {stats.subtasksCompleted}/{stats.subtasksTotal}
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "deployed", priority: "all", type: "all" })}
-          className="group rounded-xl border border-emerald-500/30 bg-emerald-950/15 p-4 text-left transition hover:border-emerald-400/60 hover:bg-emerald-950/25"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-300">5. Deploy แล้ว</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-emerald-400" data-testid="kpi-closed">
-            {stats.deployedIssues}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-400">
-            อัตราจบงาน {stats.resolutionRatePct}%
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onDrillDown?.({ status: "wont_fix", priority: "all", type: "all" })}
-          className="group rounded-xl border border-rose-500/30 bg-rose-950/15 p-4 text-left transition hover:border-rose-400/60 hover:bg-rose-950/25"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-rose-300">6. ไม่แก้ (Won&apos;t Fix)</span>
-            <XCircle className="h-4 w-4 text-rose-400" />
-          </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-rose-400" data-testid="kpi-wont-fix">
-            {stats.wontFixIssues}
-          </p>
-          <p className="mt-1 text-[11px] text-rose-200/80">
-            รีวิวแล้วไม่แก้ (พร้อมเหตุผล)
-          </p>
-        </button>
-      </div>
-
-      {/* Middle Section: Project Health Matrix + Type & AI Agent Workload */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        {/* Project Health Matrix (7 cols) */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 lg:col-span-7 space-y-3.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Rocket className="h-4 w-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">
-                สถานะความคืบหน้าแยกตามระบบ DevOps &amp; Infra (Project Pipeline Matrix)
-              </h3>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300"
+                style={{ width: `${Math.min(100, stats.resolutionRatePct)}%` }}
+              />
             </div>
-            <span className="text-xs text-slate-400">{stats.byProject.length} โปรเจกต์</span>
-          </div>
+          </StatTile>
+          <StatTile
+            label="ด่วนที่สุดที่ยังค้าง"
+            value={stats.criticalOpenCount}
+            icon={Flame}
+            tone={stats.criticalOpenCount > 0 ? "red" : "zinc"}
+            onClick={() => onDrillDown?.({ status: "active", priority: "critical", type: "all" })}
+            sub={
+              stats.criticalOpenCount > 0
+                ? "ควรจัดการเป็นลำดับแรก"
+                : "ไม่มีเรื่องด่วนค้าง — เยี่ยมมาก"
+            }
+          />
+        </div>
 
-          <div className="space-y-2.5">
-            {stats.byProject.map((p) => {
-              const total = Math.max(p.total, 1);
-              const pOpen = Math.round(((p.open + p.reviewing) / total) * 100);
-              const pReady = Math.round((p.readyToFix / total) * 100);
-              const pFixing = Math.round((p.fixing / total) * 100);
-              const pDeployed = Math.round((p.deployed / total) * 100);
-              const pWontFix = Math.max(0, 100 - pOpen - pReady - pFixing - pDeployed);
-
-              return (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={() => onDrillDown?.({ projectKey: p.key, status: "all" })}
-                  className="w-full rounded-lg border border-slate-800/90 bg-slate-950/70 p-3 text-left transition hover:border-emerald-500/40 hover:bg-slate-950"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="h-3 w-3 rounded-full shrink-0"
-                        style={{ backgroundColor: p.color }}
-                      />
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs font-bold text-white">
-                        {p.key}
-                      </span>
-                      <span className="truncate text-xs font-semibold text-slate-100">
-                        {p.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      {p.readyToFix > 0 && (
-                        <span className="inline-flex h-5 items-center gap-1 rounded-full bg-cyan-500/20 px-2 text-[11px] font-semibold text-cyan-300 border border-cyan-500/40">
-                          รอแก้ {p.readyToFix}
-                        </span>
-                      )}
-                      {p.critical > 0 && (
-                        <span className="inline-flex h-5 items-center gap-1 rounded-full bg-red-500/20 px-2 text-[11px] font-semibold text-red-300 border border-red-500/30">
-                          <Flame className="h-3 w-3" /> วิกฤต {p.critical}
-                        </span>
-                      )}
-                      <span className="font-mono text-slate-300">
-                        Deploy แล้ว <strong className="text-emerald-400">{p.deployed}</strong> / {p.total}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Segmented Bar */}
-                  <div className="mt-2.5 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      style={{ width: `${pDeployed}%` }}
-                      className="bg-emerald-500 transition-all"
-                      title={`Deploy แล้ว: ${p.deployed}`}
-                    />
-                    <div
-                      style={{ width: `${pFixing}%` }}
-                      className="bg-sky-500 transition-all"
-                      title={`กำลังแก้/Deploy: ${p.fixing}`}
-                    />
-                    <div
-                      style={{ width: `${pReady}%` }}
-                      className="bg-cyan-400 transition-all"
-                      title={`รอแก้ (Antigravity): ${p.readyToFix}`}
-                    />
-                    <div
-                      style={{ width: `${pOpen}%` }}
-                      className="bg-amber-500 transition-all"
-                      title={`รอ/กำลังรีวิว (Antigravity): ${p.open + p.reviewing}`}
-                    />
-                    <div
-                      style={{ width: `${pWontFix}%` }}
-                      className="bg-rose-500 transition-all"
-                      title={`ไม่แก้: ${p.wontFix}`}
-                    />
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-amber-400" /> รอ/กำลังรีวิว:{" "}
-                      <strong className="text-slate-200">{p.open + p.reviewing}</strong>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-cyan-400" /> รอแก้:{" "}
-                      <strong className="text-cyan-300">{p.readyToFix}</strong>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-sky-400" /> กำลังแก้:{" "}
-                      <strong className="text-slate-200">{p.fixing}</strong>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400" /> Deploy แล้ว:{" "}
-                      <strong className="text-emerald-300">{p.deployed}</strong>
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-rose-400" /> ไม่แก้:{" "}
-                      <strong className="text-rose-300">{p.wontFix}</strong>
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+        {/* Pipeline */}
+        <div className="card p-4 sm:p-5">
+          <CardTitle
+            icon={ListTodo}
+            title="ขั้นตอนการทำงาน"
+            right={
+              <button
+                type="button"
+                onClick={() => onDrillDown?.({ status: "wont_fix", priority: "all", type: "all" })}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs text-fg-muted transition hover:bg-white/[0.04] hover:text-fg"
+                title={STATUS_CONFIG.wont_fix.description}
+              >
+                <span className={`h-2 w-2 rounded-full ${TONE.zinc.dot}`} />
+                ปิดเรื่องโดยไม่แก้ไข
+                <strong data-testid="kpi-wont-fix" className="font-semibold text-fg tabular-nums">
+                  {stats.wontFixIssues}
+                </strong>
+              </button>
+            }
+          />
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {pipeline.map((stage, idx) => (
+              <button
+                key={stage.key}
+                type="button"
+                onClick={() => onDrillDown?.({ status: stage.key, priority: "all", type: "all" })}
+                className="group relative cursor-pointer rounded-xl border border-line bg-white/[0.02] p-4 text-left transition hover:border-line-strong hover:bg-white/[0.04]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.06] text-[11px] font-semibold text-fg-muted">
+                    {idx + 1}
+                  </span>
+                  <span className="text-[13px] font-medium text-fg">{stage.label}</span>
+                  <span className={`ml-auto h-2 w-2 rounded-full ${TONE[stage.tone].dot}`} />
+                </div>
+                <p data-testid={stage.testId} className={`mt-3 text-2xl font-semibold tabular-nums ${TONE[stage.tone].text}`}>
+                  {stage.value}
+                </p>
+                <p className="mt-1 text-xs text-fg-subtle">{stage.hint}</p>
+                {idx < pipeline.length - 1 && (
+                  <ChevronRight className="absolute top-1/2 -right-[13px] z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full border border-line bg-surface p-0.5 text-fg-subtle lg:block" />
+                )}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Right Column: Issue Types & AI Agent Workload (5 cols) */}
-        <div className="space-y-4 lg:col-span-5">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Siren className="h-4 w-4 text-rose-400" />
-              <h3 className="text-sm font-bold text-white">
-                สัดส่วนหมวดหมู่คำถาม &amp; ปัญหาที่แจ้งเข้ามา
-              </h3>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+        {/* Projects + Types */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="card p-4 sm:p-5 lg:col-span-7">
+            <CardTitle
+              icon={FolderKanban}
+              title="ความคืบหน้าแยกตามโปรเจกต์"
+              right={<span className="text-xs text-fg-subtle">{stats.byProject.length} โปรเจกต์</span>}
+            />
+            <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-fg-subtle">
               {(
                 [
-                  "question",
-                  "bug",
-                  "incident",
-                  "feature",
-                  "performance",
-                  "deployment",
-                  "security",
-                ] as IssueType[]
-              ).map((typeKey) => {
+                  ["emerald", "เสร็จแล้ว"],
+                  ["blue", "กำลังแก้ไข"],
+                  ["sky", "รอแก้ไข"],
+                  ["amber", "รอตรวจสอบ"],
+                  ["zinc", "ไม่แก้ไข"],
+                ] as Array<[Tone, string]>
+              ).map(([tone, label]) => (
+                <span key={label} className="inline-flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${TONE[tone].dot}`} />
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="space-y-1">
+              {stats.byProject.length === 0 && (
+                <p className="py-6 text-center text-[13px] text-fg-subtle">ยังไม่มีโปรเจกต์</p>
+              )}
+              {stats.byProject.map((p) => {
+                const total = Math.max(p.total, 1);
+                const seg = (n: number) => `${(n / total) * 100}%`;
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => onDrillDown?.({ projectKey: p.key, status: "all" })}
+                    className="w-full cursor-pointer rounded-xl px-3 py-3 text-left transition hover:bg-white/[0.03]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-[4px]" style={{ backgroundColor: p.color }} />
+                        <span className="truncate text-[13px] font-medium text-fg">{p.name}</span>
+                        <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{p.key}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2 text-xs">
+                        {p.critical > 0 && (
+                          <span className="pill h-5 bg-red-500/15 px-2 text-[11px] text-red-200 ring-red-400/30">
+                            <Flame className="h-3 w-3" /> ด่วน {p.critical}
+                          </span>
+                        )}
+                        <span className="text-fg-subtle tabular-nums">
+                          เสร็จ <strong className="font-semibold text-fg">{p.deployed}</strong>/{p.total}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2.5 flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-white/[0.05]">
+                      <div style={{ width: seg(p.deployed) }} className="bg-emerald-400" title={`เสร็จแล้ว ${p.deployed}`} />
+                      <div style={{ width: seg(p.fixing) }} className="bg-blue-400" title={`กำลังแก้ไข ${p.fixing}`} />
+                      <div style={{ width: seg(p.readyToFix) }} className="bg-sky-400" title={`รอแก้ไข ${p.readyToFix}`} />
+                      <div style={{ width: seg(p.open + p.reviewing) }} className="bg-amber-400" title={`รอตรวจสอบ ${p.open + p.reviewing}`} />
+                      <div style={{ width: seg(p.wontFix) }} className="bg-zinc-500" title={`ไม่แก้ไข ${p.wontFix}`} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="card p-4 sm:p-5 lg:col-span-5">
+            <CardTitle icon={Shapes} title="ประเภทเรื่องที่แจ้งเข้ามา" />
+            <div className="space-y-1">
+              {TYPE_ORDER.map((typeKey) => {
                 const cfg = TYPE_CONFIG[typeKey];
                 const Icon = cfg.icon;
                 const count = stats.byType[typeKey] || 0;
@@ -369,122 +408,117 @@ export function MonitorDashboardView({
                     key={typeKey}
                     type="button"
                     onClick={() => onDrillDown?.({ type: typeKey, status: "all" })}
-                    className="flex items-center justify-between rounded-lg border border-slate-800/90 bg-slate-950/60 px-3 py-2 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
+                    className="group w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[0.03]"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Icon className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                      <span className="truncate text-xs text-slate-200">{cfg.label}</span>
+                    <div className="flex items-center gap-2.5">
+                      <Icon className={`h-4 w-4 shrink-0 ${TONE[cfg.tone].text}`} />
+                      <span className="flex-1 truncate text-[13px] text-fg-muted group-hover:text-fg">{cfg.label}</span>
+                      <span className="text-[13px] font-semibold text-fg tabular-nums">{count}</span>
                     </div>
-                    <span className="ml-2 font-mono text-xs font-bold text-white">{count}</span>
+                    <div className="mt-1.5 ml-[26px] h-1 overflow-hidden rounded-full bg-white/[0.05]">
+                      <div
+                        className={`h-full rounded-full ${TONE[cfg.tone].dot} opacity-80`}
+                        style={{ width: `${(count / maxTypeCount) * 100}%` }}
+                      />
+                    </div>
                   </button>
                 );
               })}
             </div>
           </div>
+        </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-purple-400" />
-                <h3 className="text-sm font-bold text-white">
-                  ภาระงานของ AI Agents &amp; ทีม DevOps
-                </h3>
-              </div>
-              <span className="text-xs text-slate-400">{stats.byAssignee.length} ผู้รับผิดชอบ</span>
-            </div>
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {stats.byAssignee.map((a) => (
-                <div
-                  key={a.assignee}
-                  className="flex items-center justify-between rounded-lg border border-slate-800/80 bg-slate-950/60 px-3 py-2 text-xs"
-                >
-                  <span className="font-medium text-slate-200 truncate">{a.assignee}</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300">
-                      รอรีวิว {a.pendingReview}
-                    </span>
-                    <span className="rounded bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-300">
-                      รอ/กำลังแก้ {a.readyOrFixing}
-                    </span>
-                    <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-300">
-                      จบ {a.completed}
-                    </span>
+        {/* Queue + Team + Activity */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="card p-4 sm:p-5 lg:col-span-7">
+            <CardTitle
+              icon={ListTodo}
+              title="คิวงานที่ต้องจัดการ"
+              right={<span className="count">{queue.length}</span>}
+            />
+            {queue.length === 0 ? (
+              <p className="py-8 text-center text-[13px] text-fg-subtle">ไม่มีงานค้างในคิว</p>
+            ) : (
+              <div className="divide-y divide-line">
+                {queue.map((issue) => (
+                  <div
+                    key={issue.code}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectIssue(issue)}
+                    onKeyDown={(e) => e.key === "Enter" && onSelectIssue(issue)}
+                    className="-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-white/[0.03]"
+                  >
+                    <span className="w-24 shrink-0 truncate font-mono text-xs text-fg-subtle">{issue.code}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{issue.title}</span>
+                    <PriorityBadge priority={issue.priority} compact className="hidden sm:inline-flex" />
+                    <StatusBadge status={issue.status} compact />
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Section: Ready for Antigravity Queue & Recent Activity */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 lg:col-span-7 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardCheck className="h-4 w-4 text-cyan-400" />
-              <h3 className="text-sm font-bold text-white">
-                คิวงานสำคัญ (รอ Antigravity รีวิว / แก้ไข / Deploy)
-              </h3>
-            </div>
-            <span className="rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-xs font-semibold text-cyan-300">
-              {readyAndFixingIssues.length} รายการ
-            </span>
-          </div>
-
-          <div className="space-y-2">
-            {readyAndFixingIssues.map((issue) => (
-              <div
-                key={issue.code}
-                onClick={() => onSelectIssue(issue)}
-                className="flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5 transition hover:border-cyan-500/40 hover:bg-slate-900"
-              >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <span className="font-mono text-xs font-bold text-emerald-400 shrink-0">
-                    #{issue.code}
-                  </span>
-                  <PriorityBadge priority={issue.priority} />
-                  <span className="truncate text-xs font-medium text-white">{issue.title}</span>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <TypeBadge type={issue.type} compact />
-                  <StatusBadge status={issue.status} compact />
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 lg:col-span-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">
-                ความเคลื่อนไหวล่าสุด (Antigravity Activity Log)
-              </h3>
-            </div>
-            <CheckSquare className="h-4 w-4 text-slate-400" />
+            )}
           </div>
 
-          <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-            {stats.recentActivities.map((act) => (
-              <div
-                key={act.id}
-                className="rounded-lg border border-slate-800/80 bg-slate-950/60 p-2.5 text-xs"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-emerald-400 font-mono">
-                    #{act.issueCode}
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    {formatThaiDateTime(act.createdAt)}
-                  </span>
+          <div className="space-y-5 lg:col-span-5">
+            <div className="card p-4 sm:p-5">
+              <CardTitle
+                icon={Users}
+                title="ภาระงานของทีม"
+                right={<span className="text-xs text-fg-subtle">{stats.byAssignee.length} ผู้ดูแล</span>}
+              />
+              {stats.byAssignee.length === 0 ? (
+                <p className="py-4 text-center text-[13px] text-fg-subtle">ยังไม่มีการมอบหมายงาน</p>
+              ) : (
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {stats.byAssignee.map((a) => (
+                    <div key={a.assignee} className="flex items-center gap-3 rounded-lg px-1 py-1.5">
+                      <Avatar name={a.assignee} />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{a.assignee}</span>
+                      <div className="flex shrink-0 items-center gap-3 text-xs text-fg-subtle tabular-nums">
+                        <span title="รอตรวจสอบ" className="inline-flex items-center gap-1">
+                          <span className={`h-1.5 w-1.5 rounded-full ${TONE.amber.dot}`} />
+                          {a.pendingReview}
+                        </span>
+                        <span title="รอ/กำลังแก้ไข" className="inline-flex items-center gap-1">
+                          <span className={`h-1.5 w-1.5 rounded-full ${TONE.blue.dot}`} />
+                          {a.readyOrFixing}
+                        </span>
+                        <span title="เสร็จแล้ว" className="inline-flex items-center gap-1">
+                          <span className={`h-1.5 w-1.5 rounded-full ${TONE.emerald.dot}`} />
+                          {a.completed}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <p className="mt-1 text-slate-200">
-                  <strong className="text-white">{act.actor}</strong>: {act.detail}
-                </p>
-              </div>
-            ))}
+              )}
+            </div>
+
+            <div className="card p-4 sm:p-5">
+              <CardTitle icon={Clock3} title="ความเคลื่อนไหวล่าสุด" />
+              {stats.recentActivities.length === 0 ? (
+                <p className="py-4 text-center text-[13px] text-fg-subtle">ยังไม่มีความเคลื่อนไหว</p>
+              ) : (
+                <ol className="relative max-h-80 space-y-4 overflow-y-auto pr-1">
+                  {stats.recentActivities.map((act) => (
+                    <li key={act.id} className="flex gap-3">
+                      <Avatar name={act.actor} size="sm" className="mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] leading-relaxed text-fg-muted">
+                          <strong className="font-medium text-fg">{act.actor}</strong> {act.detail}
+                        </p>
+                        <p
+                          className="mt-0.5 text-xs text-fg-subtle"
+                          title={formatThaiDateTime(act.createdAt)}
+                        >
+                          <span className="font-mono">{act.issueCode}</span> · {formatRelativeTime(act.createdAt)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           </div>
         </div>
       </div>

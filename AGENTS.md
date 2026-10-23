@@ -26,6 +26,12 @@
 - `components/GoogleLoginModal.tsx` — หน้าต่าง Login by Google + จัดการสิทธิ์ Gmail รายโปรเจกต์ (`question_only`, `reporter`, `viewer`, `developer`, `project_admin`) + เพิ่มโปรเจกต์สำหรับ Admin
 - `tests/issuemate.spec.ts` — ชุดทดสอบ Playwright E2E + API ครบวงจร
 
+## ระบบดีไซน์ UI (Design System)
+- `app/globals.css` — Design tokens (`bg-canvas`, `bg-surface`, `bg-overlay`, `border-line`, `text-fg`, `text-fg-muted`, `text-fg-subtle`) และคลาสคอมโพเนนต์ (`btn btn-primary|secondary|ghost|danger`, `input`, `select`, `textarea`, `card`, `pill`, `count`, `kbd`) — ใช้คลาสเหล่านี้แทนการกำหนดสี `slate-*` เอง
+- `components/ui/Badges.tsx` — `TONE` (สีเดียวของทั้งระบบสำหรับ pill/dot) + `STATUS_CONFIG` / `TYPE_CONFIG` / `PRIORITY_CONFIG` / `PERMISSION_UI` และ `Avatar`, `formatRelativeTime`
+- `components/ui/Dialog.tsx` — `Dialog`, `DialogHeader`, `DialogFooter`, `SectionHeading`, `Notice` สำหรับทุก Modal (Bottom sheet บนมือถือ)
+- ฟอนต์ `IBM Plex Sans Thai` + `IBM Plex Mono` ผ่าน `next/font` (`app/layout.tsx`)
+
 ## คำสั่งตรวจสอบระบบ (Verification Commands)
 ```bash
 npx tsc --noEmit

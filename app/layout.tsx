@@ -1,15 +1,23 @@
-import type { Metadata } from "next";
-import { Noto_Sans_Thai } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Mono, IBM_Plex_Sans_Thai } from "next/font/google";
 import "./globals.css";
 
-const notoSansThai = Noto_Sans_Thai({
+const plexSansThai = IBM_Plex_Sans_Thai({
   subsets: ["thai", "latin"],
   weight: ["400", "500", "600", "700"],
   display: "swap",
+  variable: "--font-plex-sans",
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
+  variable: "--font-plex-mono",
 });
 
 export const metadata: Metadata = {
-  title: "IssueMate — ระบบบริหารจัดการ Issues, ความต้องการทีม & Live Monitor (AI/MCP Ready)",
+  title: "IssueMate — แจ้งปัญหา สอบถาม และติดตามงาน (AI/MCP Ready)",
   description:
     "ระบบติดตามปัญหา (Bug Tracker), รับความต้องการจากทีมงาน (Feature Request), แนบรูปภาพและเอกสารหลายไฟล์ผ่าน MinIO และเชื่อมต่อ AI ผ่าน MCP Server ครบวงจร",
   keywords: [
@@ -29,6 +37,11 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#07090e",
+  colorScheme: "dark",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,16 +58,14 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="th" className="dark">
+    <html lang="th" className={`dark ${plexSansThai.variable} ${plexMono.variable}`}>
       <head>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className={`${notoSansThai.className} bg-slate-950 text-slate-100 antialiased`}>
-        {children}
-      </body>
+      <body className="bg-canvas font-sans text-fg antialiased">{children}</body>
     </html>
   );
 }

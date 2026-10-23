@@ -805,9 +805,9 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("header-project-select")).toHaveValue(projA);
 
       // In `projA`, `questionOnlyEmail` has `question_only` permission:
-      // `open-create-issue-btn` (report bug) is hidden, while `quick-ask-question-btn` is visible
+      // `new-issue-btn` (report bug) is hidden, while `quick-ask-question-btn` is visible
       await expect(page.getByTestId("quick-ask-question-btn")).toBeVisible();
-      await expect(page.getByTestId("open-create-issue-btn")).toHaveCount(0);
+      await expect(page.getByTestId("new-issue-btn")).toHaveCount(0);
 
       // Open Ask Question modal -> verify remembered project banner + question-only notice
       await page.getByTestId("quick-ask-question-btn").click();
