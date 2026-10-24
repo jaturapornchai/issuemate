@@ -1181,6 +1181,11 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       const claimD = await mcpTool(request, token, projKey, "claim_for_fix", { code: codeD });
       expect(claimD.json.result.isError).toBeTruthy();
 
+      // A deployed issue's approval belonged to that round: AI cannot reopen it straight into fixing
+      const reopenA = await mcpTool(request, token, projKey, "update_issue_status", { code: codeA, status: "fixing" });
+      expect(reopenA.json.result.isError).toBeTruthy();
+      expect(resultText(reopenA)).toContain("ยังไม่ได้รับอนุมัติ");
+
       const codeQ = await newReviewedIssue("สอบถามวิธีออกรายงาน", "question");
       const answer = await mcpTool(request, token, projKey, "converse_on_issue", {
         code: codeQ,

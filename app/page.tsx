@@ -530,6 +530,8 @@ export default function IssueMateAppPage() {
           : `ปิดโหมดอัตโนมัติของ ${project.key} แล้ว — ต้องอนุมัติให้ AI แก้ทีละเรื่อง`
       );
       await fetchAllData({ silent: true });
+    } catch {
+      showFeedback("error", "บันทึกโหมดอัตโนมัติไม่สำเร็จ: เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
     } finally {
       setIsSavingAutoMode(false);
     }

@@ -3,6 +3,8 @@ import type { AiFixApproval, IssueRecord, IssueStatus, ProjectRecord } from "./t
 /** Statuses an AI agent may only move an issue into after admin approval */
 export const AI_GATED_STATUSES: IssueStatus[] = ["fixing", "deployed"];
 
+type GateIssue = Pick<IssueRecord, "code" | "type" | "aiFixApproval"> & { status?: IssueStatus };
+
 export type AiFixPermission =
   | { allowed: true; via: "approved" | "auto_mode" | "question" }
   | { allowed: false; reason: "rejected" | "pending"; message: string };
@@ -12,9 +14,11 @@ export type AiFixPermission =
  * - Questions can always be answered and closed by AI (no code change).
  * - An explicit admin rejection always wins, even when the project is in auto mode.
  * - Otherwise the issue needs an explicit approval, or the project's auto mode.
+ * - A closed issue's approval belongs to the finished round (updateIssue clears it on reopen),
+ *   so it must not let AI jump a deployed / wont_fix issue straight back to fixing.
  */
 export function getAiFixPermission(
-  issue: Pick<IssueRecord, "code" | "type" | "aiFixApproval">,
+  issue: GateIssue,
   project?: Pick<ProjectRecord, "aiAutoApproval"> | null
 ): AiFixPermission {
   if (issue.type === "question") return { allowed: true, via: "question" };
@@ -28,7 +32,8 @@ export function getAiFixPermission(
       message: `ผู้ดูแลไม่อนุมัติให้ AI แก้ไขเรื่อง ${issue.code}${by}${note} — ห้ามแก้โค้ดหรือ Deploy เรื่องนี้`,
     };
   }
-  if (status === "approved") return { allowed: true, via: "approved" };
+  const closed = issue.status === "deployed" || issue.status === "wont_fix";
+  if (status === "approved" && !closed) return { allowed: true, via: "approved" };
   if (project?.aiAutoApproval?.enabled) return { allowed: true, via: "auto_mode" };
   return {
     allowed: false,
@@ -39,7 +44,7 @@ export function getAiFixPermission(
 
 /** Is an AI status change into `nextStatus` blocked for this issue? Returns the error message or null. */
 export function aiStatusChangeBlockedReason(
-  issue: Pick<IssueRecord, "code" | "type" | "aiFixApproval">,
+  issue: GateIssue,
   nextStatus: IssueStatus | undefined,
   project?: Pick<ProjectRecord, "aiAutoApproval"> | null
 ): string | null {

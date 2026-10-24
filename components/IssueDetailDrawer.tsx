@@ -640,7 +640,7 @@ export function IssueDetailDrawer({
               </div>
 
               {/* AI fix approval */}
-              {approvalState !== "not_required" && (() => {
+              {approvalState !== "not_required" && !(isClosed && !approval) && (() => {
                 const cfg = AI_APPROVAL_UI[approvalState];
                 const Icon = cfg.icon;
                 const tone = TONE[cfg.tone];
