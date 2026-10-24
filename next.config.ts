@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   env: {
-    NEXT_PUBLIC_APP_VERSION: "v3.3.0",
+    NEXT_PUBLIC_APP_VERSION: "v3.3.1",
     NEXT_PUBLIC_DEPLOYED_AT_TH: `${thaiFormatted} น.`,
     NEXT_PUBLIC_DEPLOYED_AT_ISO: buildDate.toISOString(),
   },
