@@ -24,6 +24,9 @@ import {
   FolderPlus,
   Loader2,
   ChevronDown,
+  Bot,
+  Zap,
+  Hourglass,
 } from "lucide-react";
 import type {
   ProjectRecord,
@@ -178,6 +181,8 @@ export default function IssueMateAppPage() {
   const [statusFilter, setStatusFilter] = useState<IssueStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<IssueType | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<IssuePriority | "all">("all");
+  const [aiApprovalFilter, setAiApprovalFilter] = useState<"all" | "awaiting">("all");
+  const [isSavingAutoMode, setIsSavingAutoMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortBy, setSortBy] = useState<string>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -333,6 +338,7 @@ export default function IssueMateAppPage() {
         if (searchQuery.trim()) params.set("search", searchQuery.trim());
         params.set("sortBy", sortBy);
         params.set("sortDir", sortDir);
+        if (aiApprovalFilter !== "all") params.set("aiApproval", aiApprovalFilter);
 
         const monitorParams = new URLSearchParams();
         if (selectedProjectKey !== "ALL") monitorParams.set("projectKey", selectedProjectKey);
@@ -376,6 +382,7 @@ export default function IssueMateAppPage() {
       statusFilter,
       typeFilter,
       priorityFilter,
+      aiApprovalFilter,
       searchQuery,
       sortBy,
       sortDir,
@@ -449,6 +456,7 @@ export default function IssueMateAppPage() {
     setStatusFilter("all");
     setTypeFilter("all");
     setPriorityFilter("all");
+    setAiApprovalFilter("all");
     setSearchQuery("");
   };
 
@@ -481,12 +489,51 @@ export default function IssueMateAppPage() {
       label: `ความเร่งด่วน: ${PRIORITY_CONFIG[priorityFilter].label}`,
       clear: () => setPriorityFilter("all"),
     },
+    aiApprovalFilter === "awaiting" && {
+      key: "ai-approval",
+      label: "รออนุมัติให้ AI แก้ไข",
+      clear: () => setAiApprovalFilter("all"),
+    },
     searchQuery.trim() && {
       key: "search",
       label: `ค้นหา: "${searchQuery.trim()}"`,
       clear: () => setSearchQuery(""),
     },
   ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
+
+  const handleToggleAutoMode = async (project: ProjectWithCounts) => {
+    const next = !project.aiAutoApproval?.enabled;
+    if (
+      next &&
+      !window.confirm(
+        `เปิดโหมดอัตโนมัติของโปรเจกต์ ${project.key}?\n\nAI จะแก้ไขเรื่องที่ตรวจสอบแล้วได้ทันที โดยไม่ต้องรอกดอนุมัติทีละเรื่อง (ยกเว้นเรื่องที่กด "ไม่อนุมัติ" ไว้) — ปิดได้ทุกเมื่อ`
+      )
+    ) {
+      return;
+    }
+    setIsSavingAutoMode(true);
+    try {
+      const res = await fetch("/api/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: project.key, aiAutoApproval: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showFeedback("error", `บันทึกโหมดอัตโนมัติไม่สำเร็จ: ${data.error || "เกิดข้อผิดพลาด"}`);
+        return;
+      }
+      showFeedback(
+        "success",
+        next
+          ? `เปิดโหมดอัตโนมัติของ ${project.key} แล้ว — AI แก้เรื่องที่ตรวจสอบแล้วได้ทันที`
+          : `ปิดโหมดอัตโนมัติของ ${project.key} แล้ว — ต้องอนุมัติให้ AI แก้ทีละเรื่อง`
+      );
+      await fetchAllData({ silent: true });
+    } finally {
+      setIsSavingAutoMode(false);
+    }
+  };
 
   const handleUpdateIssue = async (code: string, updates: Record<string, unknown>) => {
     const res = await fetch(`/api/issues/${encodeURIComponent(code)}`, {
@@ -700,6 +747,13 @@ export default function IssueMateAppPage() {
     Boolean(currentUser?.isAdmin) ||
     activeProjectPermission === "developer" ||
     activeProjectPermission === "project_admin";
+  const canApproveAi = activeProjectPermission === "project_admin";
+  const autoApproveProjectKeys = visibleProjects
+    .filter((p) => p.aiAutoApproval?.enabled)
+    .map((p) => p.key);
+  const currentProjectAutoMode = Boolean(currentProject?.aiAutoApproval?.enabled);
+  const awaitingAiApprovalCount = monitorStats?.awaitingAiApprovalCount ?? 0;
+  const showAiBar = canApproveAi || currentProjectAutoMode;
   const activeView = VIEWS.find((v) => v.key === viewMode) || VIEWS[0];
   const ActiveViewIcon = activeView.icon;
   const showFilterToolbar = viewMode !== "monitor";
@@ -908,6 +962,11 @@ export default function IssueMateAppPage() {
                   />
                 </span>
                 <span className="flex-1 truncate text-left">{proj.name}</span>
+                {proj.aiAutoApproval?.enabled && (
+                  <span title="เปิดโหมดอัตโนมัติ — AI แก้เรื่องที่ตรวจสอบแล้วได้ทันที">
+                    <Zap className="h-3.5 w-3.5 shrink-0 text-sky-300" />
+                  </span>
+                )}
                 {PermIcon && restrictedPerm && (
                   <span title={`สิทธิ์ของคุณ: ${PERMISSION_UI[restrictedPerm].label}`}>
                     <PermIcon className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
@@ -1236,6 +1295,89 @@ export default function IssueMateAppPage() {
           </div>
         )}
 
+        {/* AI approval bar */}
+        {showAiBar && (
+          <div
+            data-testid="ai-approval-bar"
+            className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-gradient-to-r from-sky-400/[0.05] via-transparent to-transparent px-3 py-2 text-xs sm:px-5"
+          >
+            <span className="inline-flex items-center gap-1.5 font-medium text-fg-muted">
+              <Bot className="h-4 w-4 text-sky-300" />
+              AI แก้ไขอัตโนมัติ
+            </span>
+
+            {canApproveAi && (awaitingAiApprovalCount > 0 || aiApprovalFilter === "awaiting") && (
+              <button
+                type="button"
+                data-testid="filter-ai-awaiting-pill"
+                aria-pressed={aiApprovalFilter === "awaiting"}
+                onClick={() => {
+                  setAiApprovalFilter((prev) => (prev === "awaiting" ? "all" : "awaiting"));
+                  if (viewMode === "monitor") setViewMode("table");
+                }}
+                className={`pill cursor-pointer transition ${
+                  aiApprovalFilter === "awaiting"
+                    ? "bg-amber-400/20 text-amber-100 ring-amber-400/40"
+                    : "bg-amber-400/10 text-amber-200 ring-amber-400/25 hover:bg-amber-400/20"
+                }`}
+                title="แสดงเรื่องที่ตรวจสอบแล้วและรอคุณอนุมัติให้ AI แก้ไข"
+              >
+                <Hourglass className="h-3.5 w-3.5" />
+                รออนุมัติ {awaitingAiApprovalCount} เรื่อง
+              </button>
+            )}
+
+            <div className="ml-auto flex min-w-0 items-center gap-2.5">
+              {currentProject ? (
+                <>
+                  <span className="min-w-0 truncate text-fg-subtle">
+                    {currentProjectAutoMode ? (
+                      <>
+                        <strong className="font-semibold text-sky-200">โหมดอัตโนมัติ: เปิด</strong>
+                        <span className="hidden sm:inline"> — AI แก้เรื่องที่ตรวจสอบแล้วได้ทันที</span>
+                      </>
+                    ) : (
+                      <>
+                        <strong className="font-semibold text-fg-muted">โหมดอัตโนมัติ: ปิด</strong>
+                        <span className="hidden sm:inline"> — ต้องอนุมัติให้ AI แก้ทีละเรื่อง</span>
+                      </>
+                    )}
+                  </span>
+                  {canApproveAi && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={currentProjectAutoMode}
+                      aria-label={`โหมดอัตโนมัติของโปรเจกต์ ${currentProject.key}`}
+                      data-testid="ai-auto-mode-switch"
+                      disabled={isSavingAutoMode}
+                      onClick={() => void handleToggleAutoMode(currentProject)}
+                      title={
+                        currentProjectAutoMode
+                          ? "ปิดโหมดอัตโนมัติ (กลับไปอนุมัติทีละเรื่อง)"
+                          : "เปิดโหมดอัตโนมัติ (ไม่ต้องเฝ้าจอ — AI แก้ได้ทันทีหลังตรวจสอบ)"
+                      }
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition disabled:opacity-50 ${
+                        currentProjectAutoMode ? "bg-sky-400" : "bg-white/15 hover:bg-white/25"
+                      }`}
+                    >
+                      <span
+                        className={`h-4 w-4 rounded-full bg-white shadow transition ${
+                          currentProjectAutoMode ? "translate-x-[18px]" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  )}
+                </>
+              ) : (
+                canApproveAi && (
+                  <span className="truncate text-fg-subtle">เลือกโปรเจกต์เพื่อเปิด/ปิดโหมดอัตโนมัติ</span>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Active filter bar */}
         {showFilterToolbar && activeFilters.length > 0 && (
           <div
@@ -1300,6 +1442,7 @@ export default function IssueMateAppPage() {
               hasActiveFilters={activeFilters.length > 0}
               onResetFilters={resetFilters}
               onCreate={canCreateAnything ? () => openCreateModalWithType(canReportIssue ? "bug" : "question") : undefined}
+              autoApproveProjectKeys={autoApproveProjectKeys}
             />
           )}
 
@@ -1312,6 +1455,7 @@ export default function IssueMateAppPage() {
                 activeProjectPermission === "developer" ||
                 activeProjectPermission === "project_admin"
               }
+              autoApproveProjectKeys={autoApproveProjectKeys}
             />
           )}
 
@@ -1365,6 +1509,9 @@ export default function IssueMateAppPage() {
         userPermission={selectedIssuePermission}
         projectName={visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.name}
         projectColor={visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.color}
+        projectAutoApproval={
+          visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.aiAutoApproval
+        }
       />
 
       {/* Command Palette (Ctrl+K) */}

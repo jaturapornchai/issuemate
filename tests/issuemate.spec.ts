@@ -473,6 +473,26 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       expect(reviewRes.status()).toBe(200);
       const reviewedData = JSON.parse((await reviewRes.json()).result.content[0].text);
       expect(reviewedData.newStatus).toBe("ready_to_fix");
+      expect(reviewedData.aiFixAllowed).toBe(false);
+
+      // 1.12a AI cannot start fixing until an Admin approves it in the web UI; a developer cannot approve
+      const blockedFix = await mcpTool(request, memberToken, testProjectKey, "update_issue_status", {
+        code: issueCode,
+        status: "fixing",
+      });
+      expect(blockedFix.json.result.isError).toBeTruthy();
+      expect(blockedFix.json.result.content[0].text).toContain("ยังไม่ได้รับอนุมัติ");
+      const devApprove = await request.patch(`/api/issues/${issueCode}`, {
+        headers: MEMBER,
+        data: { aiFixApproval: { status: "approved" } },
+      });
+      expect(devApprove.status()).toBe(403);
+      const adminApprove = await request.patch(`/api/issues/${issueCode}`, {
+        headers: ADMIN,
+        data: { aiFixApproval: { status: "approved" } },
+      });
+      expect(adminApprove.status()).toBe(200);
+      expect((await adminApprove.json()).issue.aiFixApproval.status).toBe("approved");
 
       // 1.12 Token rights follow the owner's CURRENT permission: downgrade to viewer -> read ok, writes blocked
       const devUpdate = await mcpTool(request, memberToken, testProjectKey, "update_issue_status", {
@@ -890,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.2.0");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.3.0");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1030,6 +1050,172 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
 
       expect(errors).toEqual([]);
     } finally {
+      await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
+    }
+  });
+
+  test("5. Admin approval gate before AI fixes + per-project auto mode", async ({ request }) => {
+    const projKey = `AP${uniqueSuffix}`;
+    const devEmail = `aidev.${uniqueSuffix}@gmail.com`;
+    const DEV = as(devEmail);
+
+    await request.post("/api/projects", {
+      headers: ADMIN,
+      data: { key: projKey, name: `โปรเจกต์อนุมัติ AI ${projKey}`, color: "#3b82f6" },
+    });
+    await request.post("/api/auth/me", {
+      headers: ADMIN,
+      data: {
+        action: "add_allowed_user",
+        email: devEmail,
+        name: "AI Approval Developer",
+        role: "member",
+        allowedProjects: [projKey],
+        defaultPermission: "developer",
+      },
+    });
+    const tokenRes = await request.post("/api/mcp/tokens", {
+      headers: ADMIN,
+      data: {
+        name: "Antigravity",
+        projectKey: projKey,
+        ownerEmail: TEST_ADMIN_EMAIL,
+        ownerName: "Super Admin",
+        agentRole: "antigravity_fixer",
+      },
+    });
+    expect(tokenRes.status()).toBe(201);
+    const tokenData = await tokenRes.json();
+    const token = tokenData.rawToken as string;
+
+    const newReviewedIssue = async (title: string, type = "bug") => {
+      const created = await request.post("/api/issues", {
+        headers: ADMIN,
+        data: { projectKey: projKey, title, type, priority: "high" },
+      });
+      expect(created.status()).toBe(201);
+      const code = (await created.json()).issue.code as string;
+      if (type !== "question") {
+        const review = await mcpTool(request, token, projKey, "submit_claude_review", {
+          code,
+          decision: "fix",
+          reviewReason: "พบสาเหตุแล้ว",
+          fixInstructions: "แก้ไฟล์ที่เกี่ยวข้อง",
+        });
+        expect(review.json.result.isError).toBeFalsy();
+      }
+      return code;
+    };
+    const resultText = (r: { json: { result: { content: Array<{ text: string }> } } }) =>
+      r.json.result.content[0].text;
+
+    try {
+      // 5.1 Reviewed but not approved: AI may read, but every fix path is refused
+      const codeA = await newReviewedIssue("ต้องรออนุมัติก่อนแก้");
+      const getA = await mcpTool(request, token, projKey, "get_issue", { code: codeA });
+      expect(JSON.parse(resultText(getA)).aiFixAllowed).toBe(false);
+      for (const [tool, args] of [
+        ["claim_for_fix", { code: codeA }],
+        ["claim_and_plan_issue", { code: codeA, agentName: "Antigravity", aiSummary: "plan", nextStatus: "fixing" }],
+        ["update_issue_status", { code: codeA, status: "fixing" }],
+        ["converse_on_issue", { code: codeA, agentName: "Antigravity", message: "เริ่มแก้", newStatus: "fixing" }],
+      ] as const) {
+        const blocked = await mcpTool(request, token, projKey, tool, args);
+        expect(blocked.json.result.isError, tool).toBeTruthy();
+        expect(resultText(blocked), tool).toContain("ยังไม่ได้รับอนุมัติ");
+      }
+      const ctx = JSON.parse(resultText(await mcpTool(request, token, projKey, "get_ai_context", { projectKey: projKey })));
+      expect(ctx.queues.awaitingAdminApproval).toBeGreaterThanOrEqual(1);
+      expect(ctx.readyToFixQueue.find((i: { code: string }) => i.code === codeA).aiFixAllowed).toBe(false);
+
+      // 5.2 Only Admin / project_admin can approve, and the approver identity comes from the session
+      expect(
+        (await request.patch(`/api/issues/${codeA}`, { headers: DEV, data: { aiFixApproval: { status: "approved" } } })).status()
+      ).toBe(403);
+      const approve = await request.patch(`/api/issues/${codeA}`, {
+        headers: ADMIN,
+        data: { aiFixApproval: { status: "approved", note: "ห้ามแตะรายงานภาษี", decidedBy: "ปลอม" } },
+      });
+      expect(approve.status()).toBe(200);
+      const approved = (await approve.json()).issue.aiFixApproval;
+      expect(approved.status).toBe("approved");
+      expect(approved.decidedByEmail).toBe(TEST_ADMIN_EMAIL);
+      expect(approved.decidedBy).not.toBe("ปลอม");
+      expect(approved.note).toBe("ห้ามแตะรายงานภาษี");
+
+      const claimA = await mcpTool(request, token, projKey, "claim_for_fix", { code: codeA });
+      expect(claimA.json.result.isError).toBeFalsy();
+      const deployA = await mcpTool(request, token, projKey, "mark_deployed", { code: codeA, deployResult: "ผ่านเทสต์" });
+      expect(deployA.json.result.isError).toBeFalsy();
+      expect(JSON.parse(resultText(deployA)).status).toBe("deployed");
+
+      // 5.3 Auto mode: only Admin / project_admin can toggle it; then reviewed issues need no per-issue approval
+      expect(
+        (await request.patch("/api/projects", { headers: DEV, data: { key: projKey, aiAutoApproval: true } })).status()
+      ).toBe(403);
+      const autoOn = await request.patch("/api/projects", { headers: ADMIN, data: { key: projKey, aiAutoApproval: true } });
+      expect(autoOn.status()).toBe(200);
+      expect((await autoOn.json()).project.aiAutoApproval.enabled).toBe(true);
+
+      const codeB = await newReviewedIssue("โหมดอัตโนมัติแก้ได้ทันที");
+      const claimB = await mcpTool(request, token, projKey, "claim_for_fix", { code: codeB });
+      expect(claimB.json.result.isError).toBeFalsy();
+      const claimedB = JSON.parse(resultText(claimB));
+      expect(claimedB.status).toBe("fixing");
+      expect(claimedB.aiFixApproval.auto).toBe(true);
+
+      // 5.4 An explicit rejection wins over auto mode
+      const codeC = await newReviewedIssue("ผู้ดูแลไม่อนุมัติ");
+      const reject = await request.patch(`/api/issues/${codeC}`, {
+        headers: ADMIN,
+        data: { aiFixApproval: { status: "rejected", note: "รอเปลี่ยนสเปก" } },
+      });
+      expect(reject.status()).toBe(200);
+      const claimC = await mcpTool(request, token, projKey, "claim_for_fix", { code: codeC });
+      expect(claimC.json.result.isError).toBeTruthy();
+      expect(resultText(claimC)).toContain("ไม่อนุมัติ");
+
+      // 5.5 Auto mode off again -> back to per-issue approval; questions never need approval
+      await request.patch("/api/projects", { headers: ADMIN, data: { key: projKey, aiAutoApproval: false } });
+      const codeD = await newReviewedIssue("หลังปิดโหมดอัตโนมัติ");
+      const claimD = await mcpTool(request, token, projKey, "claim_for_fix", { code: codeD });
+      expect(claimD.json.result.isError).toBeTruthy();
+
+      const codeQ = await newReviewedIssue("สอบถามวิธีออกรายงาน", "question");
+      const answer = await mcpTool(request, token, projKey, "converse_on_issue", {
+        code: codeQ,
+        agentName: "Antigravity",
+        message: "ตอบคำถามพร้อมขั้นตอน",
+        newStatus: "deployed",
+      });
+      expect(answer.json.result.isError).toBeFalsy();
+
+      // 5.6 Work moved into "fixing" without approval (e.g. claimed before the gate existed) stays in the
+      //     admin's awaiting queue, and AI cannot deploy it until approved
+      const codeE = await newReviewedIssue("เริ่มแก้ก่อนมีระบบอนุมัติ");
+      expect(
+        (await request.patch(`/api/issues/${codeE}`, { headers: DEV, data: { status: "fixing" } })).status()
+      ).toBe(200);
+      const deployE = await mcpTool(request, token, projKey, "mark_deployed", { code: codeE, deployResult: "ผ่านเทสต์" });
+      expect(deployE.json.result.isError).toBeTruthy();
+      expect(resultText(deployE)).toContain("ยังไม่ได้รับอนุมัติ");
+      const awaitingList = await (
+        await request.get(`/api/issues?projectKey=${projKey}&aiApproval=awaiting`, { headers: ADMIN })
+      ).json();
+      const awaitingCodes = awaitingList.issues.map((i: { code: string }) => i.code);
+      expect(awaitingCodes).toContain(codeE);
+      expect(awaitingCodes).toContain(codeD);
+      expect(awaitingCodes).not.toContain(codeC);
+      expect(awaitingCodes).not.toContain(codeQ);
+      const apStats = (await (await request.get(`/api/monitor?projectKey=${projKey}`, { headers: ADMIN })).json()).stats;
+      expect(apStats.awaitingAiApprovalFixingCount).toBe(1);
+      expect(apStats.awaitingAiApprovalCount).toBe(2);
+    } finally {
+      await request.delete(`/api/mcp/tokens?id=${tokenData.token?.id}`, { headers: ADMIN });
+      await request.post("/api/auth/me", {
+        headers: ADMIN,
+        data: { action: "remove_allowed_user", email: devEmail },
+      });
       await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
     }
   });

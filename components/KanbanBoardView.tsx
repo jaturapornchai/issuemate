@@ -12,6 +12,8 @@ import {
   formatThaiDate,
   formatThaiTime,
   formatThaiDateTime,
+  AiApprovalBadge,
+  listApprovalChipState,
 } from "./ui/Badges";
 
 const COLUMNS: Array<{ status: IssueStatus; nextStatus?: IssueStatus; nextLabel?: string }> = [
@@ -28,11 +30,13 @@ export function KanbanBoardView({
   onSelectIssue,
   onQuickStatusChange,
   canChangeStatus = true,
+  autoApproveProjectKeys = [],
 }: {
   issues: IssueRecord[];
   onSelectIssue: (issue: IssueRecord) => void;
   onQuickStatusChange: (code: string, nextStatus: IssueStatus) => void;
   canChangeStatus?: boolean;
+  autoApproveProjectKeys?: string[];
 }) {
   return (
     <div data-testid="kanban-board-view" className="flex h-full gap-3 overflow-x-auto p-4 sm:p-5">
@@ -94,6 +98,15 @@ export function KanbanBoardView({
 
                       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                         <TypeBadge type={issue.type} compact className="h-5 px-2 text-[11px]" />
+                        {(() => {
+                          const approval = listApprovalChipState(
+                            issue,
+                            autoApproveProjectKeys.includes(issue.projectKey)
+                          );
+                          return approval ? (
+                            <AiApprovalBadge state={approval} compact className="h-5 px-2 text-[11px]" />
+                          ) : null;
+                        })()}
                         {issue.devopsMeta?.serviceName && (
                           <span className="pill h-5 bg-white/[0.04] px-2 font-mono text-[10px] text-fg-subtle ring-line">
                             <Server className="h-3 w-3" />

@@ -12,9 +12,17 @@ import {
   addIssueComment,
   getMonitorStats,
   normalizeProjectKey,
+  getProjectByKey,
 } from "./issue-service";
 import { MAX_FILES_PER_REQUEST, uploadBufferToMinio } from "./minio";
-import type { AttachmentItem, SubtaskItem } from "./types";
+import type { AiFixApproval, AttachmentItem, IssueStatus, SubtaskItem } from "./types";
+import {
+  AI_GATED_STATUSES,
+  aiApprovalDisplayState,
+  aiStatusChangeBlockedReason,
+  autoModeApprovalRecord,
+  getAiFixPermission,
+} from "./ai-approval";
 import { formatTokenActorIdentity, type McpTokenPublic } from "./mcp-tokens";
 import {
   canUserAccessProject,
@@ -148,6 +156,24 @@ export function createIssueMateMcpServer(
     return code;
   }
 
+  // Admin approval gate: AI may move an issue into fixing/deployed only after an admin approved it
+  // in the web UI (or the project's auto mode is on). Returns the record to stamp for auto mode.
+  async function requireAiFixApproval(
+    code: string,
+    nextStatus: IssueStatus | undefined
+  ): Promise<AiFixApproval | undefined> {
+    if (!nextStatus || !AI_GATED_STATUSES.includes(nextStatus)) return undefined;
+    const issue = await getIssueByCode(code);
+    if (!issue) throw new Error(`ไม่พบ Issue ${code}`);
+    const project = await getProjectByKey(issue.projectKey);
+    const blocked = aiStatusChangeBlockedReason(issue, nextStatus, project);
+    if (blocked) throw new Error(blocked);
+    const perm = getAiFixPermission(issue, project);
+    return perm.allowed && perm.via === "auto_mode" && project
+      ? autoModeApprovalRecord(project)
+      : undefined;
+  }
+
   // 1. get_ai_context
   server.tool(
     "get_ai_context",
@@ -160,10 +186,13 @@ export function createIssueMateMcpServer(
     },
     async (args) => {
       const targetProj = resolveScopedProjectKey(args.projectKey);
-      const [projects, stats] = await Promise.all([
+      const scope = listScope(args.projectKey);
+      const [projects, stats, readyToFix] = await Promise.all([
         listProjects(),
-        getMonitorStats(listScope(args.projectKey) || "ALL"),
+        getMonitorStats(scope || "ALL"),
+        listIssues({ projectKey: scope, status: "ready_to_fix", limit: 50 }),
       ]);
+      const projectByKey = new Map(projects.map((p) => [p.key, p]));
       const filteredProjects = projects.filter(
         (p) => (!targetProj || p.key === targetProj) && (!owner || canUserAccessProject(owner, p.key))
       );
@@ -186,8 +215,11 @@ export function createIssueMateMcpServer(
           pipelineWorkflow: [
             "1. แจ้งปัญหาใหม่ -> status = 'open' (รอ Antigravity ดึงไปรีวิว)",
             "2. Antigravity วิเคราะห์สาเหตุ -> เรียก submit_claude_review: ถ้าสั่งแก้จะเปลี่ยนเป็น 'ready_to_fix' พร้อมเหตุผล (reviewReason) และคำสั่งในการแก้/Deploy (fixInstructions, deployCommand); ถ้าไม่แก้จะเปลี่ยนเป็น 'wont_fix' พร้อมเหตุผล",
-            "3. Antigravity ดึงรายการที่ status = 'ready_to_fix' -> เรียก claim_for_fix (เปลี่ยนเป็น 'fixing') แล้วแก้โค้ด + ทดสอบ + Deploy จากนั้นเรียก mark_deployed (เปลี่ยนเป็น 'deployed')",
+            "3. รอผู้ดูแล (Admin) อนุมัติให้ AI แก้ไขในหน้าเว็บ — ดู aiFixAllowed ใน readyToFixQueue (หรือโปรเจกต์เปิดโหมดอัตโนมัติ)",
+            "4. เฉพาะเรื่องที่ aiFixAllowed = true เท่านั้น -> เรียก claim_for_fix (เปลี่ยนเป็น 'fixing') แล้วแก้โค้ด + ทดสอบ + Deploy จากนั้นเรียก mark_deployed (เปลี่ยนเป็น 'deployed')",
           ],
+          aiFixApprovalRule:
+            "ห้ามแก้โค้ดหรือ Deploy เรื่องที่ยังไม่ได้รับอนุมัติจากผู้ดูแล (aiFixAllowed = false) — ระบบจะปฏิเสธ claim_for_fix / mark_deployed / การเปลี่ยนสถานะเป็น fixing หรือ deployed จนกว่าจะได้รับอนุมัติ เรื่องประเภทคำถาม (question) ตอบและปิดเรื่องได้โดยไม่ต้องรออนุมัติ เรื่องที่ผู้ดูแลกด 'ไม่อนุมัติ' ห้ามแก้แม้โปรเจกต์เปิดโหมดอัตโนมัติ",
           validValues: {
             status: ["open", "reviewing", "ready_to_fix", "fixing", "deployed", "wont_fix"],
             type: ["question", "incident", "bug", "deployment", "performance", "security", "feature"],
@@ -201,11 +233,26 @@ export function createIssueMateMcpServer(
           openCount: p.openCount,
           readyToFixCount: p.readyToFixCount,
           totalCount: p.totalCount,
+          aiAutoMode: Boolean(p.aiAutoApproval?.enabled),
         })),
+        readyToFixQueue: readyToFix.map((issue) => {
+          const project = projectByKey.get(issue.projectKey);
+          const perm = getAiFixPermission(issue, project);
+          return {
+            code: issue.code,
+            title: issue.title,
+            priority: issue.priority,
+            aiFixAllowed: perm.allowed,
+            approval: aiApprovalDisplayState(issue, project),
+            ...(perm.allowed ? {} : { blockedReason: perm.message }),
+          };
+        }),
         queues: {
           pendingReview: stats.openIssues + stats.reviewingIssues,
           pendingClaudeReview: stats.openIssues + stats.reviewingIssues,
           readyForAntigravityFix: stats.readyToFixIssues,
+          awaitingAdminApproval: stats.awaitingAiApprovalCount,
+          fixingButNotApprovedForDeploy: stats.awaitingAiApprovalFixingCount,
           currentlyFixing: stats.fixingIssues,
           deployedCount: stats.deployedIssues,
           wontFixCount: stats.wontFixIssues,
@@ -302,6 +349,13 @@ export function createIssueMateMcpServer(
         actor: reviewer,
       });
 
+      const reviewProject = await getProjectByKey(updated.projectKey);
+      const fixPermission = getAiFixPermission(updated, reviewProject);
+      const approvalLine =
+        args.decision === "fix" && !fixPermission.allowed
+          ? "\n- ⏳ **รอผู้ดูแลอนุมัติให้ AI แก้ไข** ก่อนเริ่มแก้โค้ด"
+          : "";
+
       await addIssueComment(code, {
         author: reviewer,
         role: "Antigravity Agent",
@@ -309,7 +363,7 @@ export function createIssueMateMcpServer(
           args.decision === "fix"
             ? `### ✅ ผลรีวิวจาก Antigravity: **สั่งแก้ (สถานะ: รอแก้ \`ready_to_fix\`)**\n- **สาเหตุ/เหตุผล**: ${args.reviewReason}\n- **คำสั่งในการแก้ (สำหรับ Antigravity)**:\n\`\`\`text\n${args.fixInstructions || "-"}\n\`\`\`\n${
                 args.deployCommand ? `- **คำสั่ง Deploy**: \`${args.deployCommand}\`` : ""
-              }`
+              }${approvalLine}`
             : args.decision === "wont_fix"
             ? `### ⛔ ผลรีวิวจาก Antigravity: **ไม่แก้ (สถานะ: \`wont_fix\`)**\n- **เหตุผลที่ไม่แก้**: ${args.reviewReason}`
             : `### 🔍 Antigravity กำลังรีวิว (สถานะ: \`reviewing\`)\n- **บันทึกการวิเคราะห์เบื้องต้น**: ${args.reviewReason}`,
@@ -327,6 +381,13 @@ export function createIssueMateMcpServer(
                 newStatus: updated.status,
                 decision: args.decision,
                 reviewMeta: updated.reviewMeta,
+                aiFixAllowed: fixPermission.allowed,
+                nextStep:
+                  args.decision !== "fix"
+                    ? undefined
+                    : fixPermission.allowed
+                      ? "ได้รับอนุมัติแล้ว — เรียก claim_for_fix เพื่อเริ่มแก้ไขได้"
+                      : "รอผู้ดูแลอนุมัติให้ AI แก้ไขในหน้าเว็บ — ห้ามเริ่มแก้โค้ดจนกว่า aiFixAllowed จะเป็น true",
               },
               null,
               2
@@ -340,7 +401,7 @@ export function createIssueMateMcpServer(
   // 3. claim_for_fix (and alias claim_and_plan_issue for Antigravity)
   server.tool(
     "claim_for_fix",
-    "สำหรับ Antigravity: ดึง Issue ที่สถานะ 'ready_to_fix' (รอแก้) ไปเริ่มดำเนินการแก้ไขโค้ดและเตรียม Deploy (เปลี่ยนสถานะเป็น 'fixing')",
+    "สำหรับ Antigravity: ดึง Issue ที่สถานะ 'ready_to_fix' (รอแก้) ไปเริ่มดำเนินการแก้ไขโค้ดและเตรียม Deploy (เปลี่ยนสถานะเป็น 'fixing') — ใช้ได้เฉพาะเรื่องที่ผู้ดูแลอนุมัติให้ AI แก้ไขแล้ว (หรือโปรเจกต์เปิดโหมดอัตโนมัติ)",
     {
       projectKey: z
         .string()
@@ -354,11 +415,13 @@ export function createIssueMateMcpServer(
       assertNotReviewerOnly("claim_for_fix");
       const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
       const resolvedAgent = formatTokenActorIdentity(tokenUser, agentName);
+      const autoApproval = await requireAiFixApproval(normalized, "fixing");
       const updated = await updateIssue(normalized, {
         status: "fixing",
         expectedStatus: "ready_to_fix",
         assignee: resolvedAgent,
         actor: resolvedAgent,
+        aiFixApproval: autoApproval,
         reviewMeta: {
           fixedBy: resolvedAgent,
         },
@@ -379,7 +442,7 @@ export function createIssueMateMcpServer(
   // 4. mark_deployed (for Antigravity after fixing & deploying)
   server.tool(
     "mark_deployed",
-    "สำหรับ Antigravity: บันทึกผลการแก้ไข ทดสอบ และ Deploy ขึ้นเซิร์ฟเวอร์สำเร็จ (เปลี่ยนสถานะเป็น 'deployed' พร้อมติ๊ก Subtasks ทั้งหมด)",
+    "สำหรับ Antigravity: บันทึกผลการแก้ไข ทดสอบ และ Deploy ขึ้นเซิร์ฟเวอร์สำเร็จ (เปลี่ยนสถานะเป็น 'deployed' พร้อมติ๊ก Subtasks ทั้งหมด) — ใช้ได้เฉพาะเรื่องที่ผู้ดูแลอนุมัติให้ AI แก้ไขแล้ว",
     {
       projectKey: z
         .string()
@@ -404,6 +467,7 @@ export function createIssueMateMcpServer(
         };
       }
 
+      const autoApproval = await requireAiFixApproval(normalized, "deployed");
       const nextSubtasks = completeAllSubtasks
         ? (existing.subtasks || []).map((s) => ({ ...s, completed: true }))
         : existing.subtasks;
@@ -411,6 +475,7 @@ export function createIssueMateMcpServer(
       const updated = await updateIssue(normalized, {
         status: "deployed",
         expectedStatus: "fixing",
+        aiFixApproval: autoApproval,
         assignee: resolvedAgent,
         subtasks: nextSubtasks,
         reviewMeta: {
@@ -622,6 +687,10 @@ export function createIssueMateMcpServer(
       priority: z.enum(["all", "critical", "high", "medium", "low"]).optional(),
       search: z.string().optional(),
       limit: z.number().optional(),
+      aiApproval: z
+        .enum(["all", "awaiting", "approved"])
+        .optional()
+        .describe("'approved' = เฉพาะเรื่องที่ผู้ดูแลอนุมัติให้ AI แก้แล้ว, 'awaiting' = รอผู้ดูแลอนุมัติ"),
     },
     async (args) => {
       const issues = await listIssues({
@@ -654,8 +723,15 @@ export function createIssueMateMcpServer(
           isError: true,
         };
       }
+      const project = await getProjectByKey(issue.projectKey);
+      const perm = getAiFixPermission(issue, project);
+      const payload = {
+        ...issue,
+        aiFixAllowed: perm.allowed,
+        ...(perm.allowed ? {} : { aiFixBlockedReason: perm.message }),
+      };
       return {
-        content: [{ type: "text", text: JSON.stringify(issue, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
       };
     }
   );
@@ -756,6 +832,18 @@ export function createIssueMateMcpServer(
       // Workflow fields (status/devopsMeta/reviewMeta) need developer/project_admin, like the web API
       const canManage =
         !owner || validateUserProjectAction(owner, normalizedKey, "change_status").allowed;
+      if (canManage && args.status) {
+        const blocked = aiStatusChangeBlockedReason(
+          { code: "(เรื่องใหม่)", type: args.type, aiFixApproval: undefined },
+          args.status,
+          await getProjectByKey(normalizedKey)
+        );
+        if (blocked) {
+          throw new Error(
+            `${blocked} — สร้างเรื่องใหม่ได้ในสถานะ open หรือ ready_to_fix แล้วรอผู้ดูแลอนุมัติ`
+          );
+        }
+      }
       const resolvedReporter = formatTokenActorIdentity(
         tokenUser,
         args.reporter || "AI DevOps Agent"
@@ -844,10 +932,12 @@ export function createIssueMateMcpServer(
         }
       }
 
+      const autoApproval = await requireAiFixApproval(normalized, nextStatus);
       await updateIssue(normalized, {
         status: nextStatus,
         assignee: resolvedAgent,
         aiSummary,
+        aiFixApproval: autoApproval,
         subtasks: nextSubtasks,
         reviewMeta: fixInstructions
           ? {
@@ -915,6 +1005,8 @@ export function createIssueMateMcpServer(
         };
       }
 
+      // Check the approval gate before any side effect (file uploads, comments)
+      const autoApproval = await requireAiFixApproval(normalized, args.newStatus);
       const uploadedFiles = await uploadInlineFiles(
         args.files,
         agentName,
@@ -933,6 +1025,7 @@ export function createIssueMateMcpServer(
       if (updatedSubtasks || args.reactionEmoji || args.newStatus || args.deployResult) {
         updated = await updateIssue(normalized, {
           status: args.newStatus,
+          aiFixApproval: autoApproval,
           subtasks: updatedSubtasks,
           reviewMeta: args.deployResult
             ? {
@@ -998,8 +1091,10 @@ export function createIssueMateMcpServer(
     },
     async ({ projectKey, code, ...patch }) => {
       const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
+      const autoApproval = await requireAiFixApproval(normalized, patch.status);
       const updated = await updateIssue(normalized, {
         ...patch,
+        aiFixApproval: autoApproval,
         actor: formatTokenActorIdentity(tokenUser, patch.actor),
       });
       return {

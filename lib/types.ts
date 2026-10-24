@@ -70,6 +70,26 @@ export interface ReviewAndFixMeta {
   deployResult?: string;     // บันทึกผลการแก้และ Deploy (Commit / ผลเทสต์ Playwright / URL)
 }
 
+/** Admin decision on whether an AI agent may fix this issue automatically (web UI only, never via MCP) */
+export type AiFixApprovalStatus = "pending" | "approved" | "rejected";
+
+export interface AiFixApproval {
+  status: AiFixApprovalStatus;
+  decidedBy?: string;       // ชื่อผู้ดูแลที่อนุมัติ/ไม่อนุมัติ
+  decidedByEmail?: string;
+  decidedAt?: string;       // ISO UTC
+  note?: string;            // หมายเหตุถึง AI / ทีม
+  auto?: boolean;           // true = อนุมัติโดยโหมดอัตโนมัติของโปรเจกต์
+}
+
+/** Per-project "auto mode": AI may fix reviewed issues without a per-issue approval */
+export interface AiAutoApprovalSetting {
+  enabled: boolean;
+  changedBy?: string;
+  changedByEmail?: string;
+  changedAt?: string;
+}
+
 export interface ProjectRecord {
   _id?: string;
   key: string;               // Unique project key e.g., "DEVOPS", "API", "FRONTEND", "DB", "AI"
@@ -82,6 +102,7 @@ export interface ProjectRecord {
   nextIssueNumber: number;   // Atomic sequence counter
   labels: Array<{ name: string; color: string }>;
   milestones: Array<{ id: string; title: string; dueDate?: string; status: "open" | "closed" }>;
+  aiAutoApproval?: AiAutoApprovalSetting;
   createdAt: string;
   updatedAt: string;
 }
@@ -127,6 +148,7 @@ export interface IssueRecord {
   relatedCodes?: string[];  // เชื่อมโยง Issue ที่เกี่ยวข้องกัน
   devopsMeta?: DevopsMetadata;   // ข้อมูลเซิร์ฟเวอร์ / Service / Severity / Environment
   reviewMeta?: ReviewAndFixMeta; // ข้อมูลผลรีวิวจาก Claude + เหตุผล + คำสั่งแก้และ Deploy สำหรับ Antigravity
+  aiFixApproval?: AiFixApproval; // การอนุมัติจากผู้ดูแลก่อนให้ AI แก้ไขอัตโนมัติ (ไม่มี = รออนุมัติ)
   aiTriage?: {
     summary: string;
     confidence: number;
@@ -159,6 +181,9 @@ export interface MonitorStats {
   subtasksTotal: number;
   subtasksCompleted: number;
   activeIncidentsCount: number;
+  awaitingAiApprovalCount: number; // รอแก้ไข/กำลังแก้ไข + ยังไม่ได้รับอนุมัติให้ AI แก้ (ไม่รวมโปรเจกต์ที่เปิดโหมดอัตโนมัติ)
+  awaitingAiApprovalFixingCount: number; // ในจำนวนข้างบน: กำลังแก้ไขอยู่แต่ยังไม่ได้รับอนุมัติ (AI จะ Deploy ไม่ได้)
+  aiApprovedActiveCount: number;   // อนุมัติให้ AI แก้แล้วและยังไม่ปิดเรื่อง
   byProject: Array<{
     key: string;
     name: string;

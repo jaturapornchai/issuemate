@@ -112,7 +112,8 @@ export function validateUserProjectAction(
     | "comment"
     | "change_status"
     | "delete_issue"
-    | "generate_mcp_token",
+    | "generate_mcp_token"
+    | "approve_ai_fix",
   issueType?: string
 ): { allowed: boolean; permission: ProjectPermissionLevel | "none"; reason?: string } {
   if (!user) {
@@ -176,6 +177,17 @@ export function validateUserProjectAction(
         allowed: false,
         permission: perm,
         reason: `บัญชีของคุณมีสิทธิ์ "${PROJECT_PERMISSION_CONFIG[perm].shortLabel}" ในโปรเจกต์ [${projectKey}] ไม่สามารถสร้าง MCP Token สำหรับแก้ไขโค้ดได้`,
+      };
+    }
+    return { allowed: true, permission: perm };
+  }
+  if (action === "approve_ai_fix") {
+    // Approving AI fixes / toggling auto mode is a human admin decision (web session only)
+    if (perm !== "project_admin") {
+      return {
+        allowed: false,
+        permission: perm,
+        reason: `เฉพาะผู้ดูแลโปรเจกต์หรือ Admin เท่านั้นที่อนุมัติให้ AI แก้ไขในโปรเจกต์ [${projectKey}] ได้`,
       };
     }
     return { allowed: true, permission: perm };

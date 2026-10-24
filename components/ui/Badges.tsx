@@ -24,6 +24,10 @@ import {
   Eye,
   PenLine,
   Crown,
+  ShieldCheck,
+  ShieldX,
+  Hourglass,
+  Zap,
 } from "lucide-react";
 import type { IssuePriority, IssueStatus, IssueType } from "@/lib/types";
 import type { ProjectPermissionLevel } from "@/lib/permissions";
@@ -327,6 +331,54 @@ export function PermissionBadge({
         {prefix}
         {cfg.shortLabel}
       </span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------
+   AI fix approval (see lib/ai-approval.ts for the rules)
+------------------------------------------------------------------- */
+
+export type AiApprovalDisplay = "not_required" | "approved" | "rejected" | "auto" | "pending";
+
+export const AI_APPROVAL_UI: Record<
+  Exclude<AiApprovalDisplay, "not_required">,
+  { label: string; shortLabel: string; hint: string; tone: Tone; icon: IconType }
+> = {
+  approved: { label: "อนุมัติให้ AI แก้ไขแล้ว", shortLabel: "อนุมัติ AI", hint: "AI เริ่มแก้ไขเรื่องนี้ได้", tone: "emerald", icon: ShieldCheck },
+  auto: { label: "โหมดอัตโนมัติ — AI แก้ได้ทันที", shortLabel: "AI อัตโนมัติ", hint: "โปรเจกต์นี้เปิดโหมดอัตโนมัติ ไม่ต้องรออนุมัติ", tone: "sky", icon: Zap },
+  pending: { label: "รอผู้ดูแลอนุมัติให้ AI แก้ไข", shortLabel: "รออนุมัติ AI", hint: "AI จะยังไม่แก้โค้ดจนกว่าผู้ดูแลจะอนุมัติ", tone: "amber", icon: Hourglass },
+  rejected: { label: "ไม่อนุมัติให้ AI แก้ไข", shortLabel: "ไม่อนุมัติ AI", hint: "ผู้ดูแลไม่ให้ AI แก้ไขเรื่องนี้", tone: "rose", icon: ShieldX },
+};
+
+/** Which approval chip (if any) a list row should show: decisions always, pending/auto only while it blocks/unblocks AI */
+export function listApprovalChipState(
+  issue: { status: IssueStatus; type: IssueType; aiFixApproval?: { status?: string } },
+  projectAutoMode: boolean
+): AiApprovalDisplay | null {
+  if (issue.type === "question" || issue.status === "deployed" || issue.status === "wont_fix") return null;
+  const decided = issue.aiFixApproval?.status;
+  if (decided === "approved" || decided === "rejected") return decided;
+  if (issue.status !== "ready_to_fix" && issue.status !== "fixing") return null;
+  return projectAutoMode ? "auto" : "pending";
+}
+
+export function AiApprovalBadge({
+  state,
+  compact = false,
+  className = "",
+}: {
+  state: AiApprovalDisplay;
+  compact?: boolean;
+  className?: string;
+}) {
+  if (state === "not_required") return null;
+  const cfg = AI_APPROVAL_UI[state];
+  const Icon = cfg.icon;
+  return (
+    <span title={`${cfg.label} — ${cfg.hint}`} className={`pill ${TONE[cfg.tone].pill} ${className}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{compact ? cfg.shortLabel : cfg.label}</span>
     </span>
   );
 }
