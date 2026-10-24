@@ -1,6 +1,6 @@
 # IssueMate DevOps — ระบบแจ้งปัญหา & ติดตามงานสำหรับ Antigravity, Claude Code และ Codex
 
-> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com) · **Version**: `v3.2.0` (แสดงเลขเวอร์ชันและวัน-เวลา Deploy ล่าสุดบนหน้าเว็บและ API `/api/auth/me`)
+> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com) · **Version**: `v3.3.0` (แสดงเลขเวอร์ชันและวัน-เวลา Deploy ล่าสุดบนหน้าเว็บและ API `/api/auth/me`)
 
 ระบบบริหารจัดการปัญหา (Issue Tracker) และเชื่อมโยงระหว่าง **ผู้ใช้งานทั่วไป / Tester (Non-Tech)** กับ **ทีมนักพัฒนา & AI Agent (Antigravity, Claude Code, Codex)** บน **`https://issue.dedezoom.com`** ภายใต้แนวคิด **"Easy for Tester, Rich for Dev"** — ให้ผู้แจ้งปัญหาพิมพ์หรือพูดเหมือนคุยแชท วางภาพแคปหน้าจอด้วย `Ctrl+V` พร้อมวาดวงกลม/ลูกศร/เบลอข้อมูลสำคัญได้ทันที ขณะที่ระบบแอบเก็บข้อมูลอุปกรณ์และจัดโครงสร้างเป็น Issue ระดับมืออาชีพให้นักพัฒนาครบ 100%
 
@@ -155,6 +155,7 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 - **โหมดอัตโนมัติ (ต่อโปรเจกต์)**: ผู้ดูแลเปิดสวิตช์ในแถบ "AI แก้ไขอัตโนมัติ" เมื่อไม่ต้องการเฝ้าจอ — AI แก้เรื่องที่ตรวจสอบแล้วได้ทันที ระบบบันทึกว่า "อนุมัติโดยโหมดอัตโนมัติ" ทุกครั้ง และเรื่องที่ผู้ดูแลกด "ไม่อนุมัติ" ไว้จะไม่ถูกแก้แม้เปิดโหมดนี้
 - เรื่องประเภท **คำถาม (`question`)** AI ตอบและปิดเรื่องได้โดยไม่ต้องรออนุมัติ (ไม่มีการแก้โค้ด)
 - เปิดเรื่องที่ปิดไปแล้วขึ้นมาใหม่ = ต้องขออนุมัติใหม่
+- เรื่องที่อยู่สถานะ "กำลังแก้ไข" แต่ยังไม่มีการอนุมัติ (เช่น เริ่มแก้ก่อนอัปเกรดเป็น v3.3.0) จะขึ้นในปุ่ม **"รออนุมัติ N เรื่อง"** ด้วย — AI จะ `mark_deployed` ไม่ได้จนกว่าผู้ดูแลจะอนุมัติ
 - `get_ai_context` คืน `readyToFixQueue` พร้อม `aiFixAllowed` ของแต่ละเรื่อง และ `get_issue` คืน `aiFixAllowed` / `aiFixBlockedReason`
 
 ## 🛠️ รายการ 14 MCP Tools ในระบบ (ล็อกตาม Project)

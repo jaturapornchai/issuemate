@@ -181,7 +181,8 @@ export interface MonitorStats {
   subtasksTotal: number;
   subtasksCompleted: number;
   activeIncidentsCount: number;
-  awaitingAiApprovalCount: number; // รอแก้ไข + ยังไม่ได้รับอนุมัติให้ AI แก้ (ไม่รวมโปรเจกต์ที่เปิดโหมดอัตโนมัติ)
+  awaitingAiApprovalCount: number; // รอแก้ไข/กำลังแก้ไข + ยังไม่ได้รับอนุมัติให้ AI แก้ (ไม่รวมโปรเจกต์ที่เปิดโหมดอัตโนมัติ)
+  awaitingAiApprovalFixingCount: number; // ในจำนวนข้างบน: กำลังแก้ไขอยู่แต่ยังไม่ได้รับอนุมัติ (AI จะ Deploy ไม่ได้)
   aiApprovedActiveCount: number;   // อนุมัติให้ AI แก้แล้วและยังไม่ปิดเรื่อง
   byProject: Array<{
     key: string;

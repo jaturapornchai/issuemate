@@ -910,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.2.0");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.3.0");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1189,6 +1189,27 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
         newStatus: "deployed",
       });
       expect(answer.json.result.isError).toBeFalsy();
+
+      // 5.6 Work moved into "fixing" without approval (e.g. claimed before the gate existed) stays in the
+      //     admin's awaiting queue, and AI cannot deploy it until approved
+      const codeE = await newReviewedIssue("เริ่มแก้ก่อนมีระบบอนุมัติ");
+      expect(
+        (await request.patch(`/api/issues/${codeE}`, { headers: DEV, data: { status: "fixing" } })).status()
+      ).toBe(200);
+      const deployE = await mcpTool(request, token, projKey, "mark_deployed", { code: codeE, deployResult: "ผ่านเทสต์" });
+      expect(deployE.json.result.isError).toBeTruthy();
+      expect(resultText(deployE)).toContain("ยังไม่ได้รับอนุมัติ");
+      const awaitingList = await (
+        await request.get(`/api/issues?projectKey=${projKey}&aiApproval=awaiting`, { headers: ADMIN })
+      ).json();
+      const awaitingCodes = awaitingList.issues.map((i: { code: string }) => i.code);
+      expect(awaitingCodes).toContain(codeE);
+      expect(awaitingCodes).toContain(codeD);
+      expect(awaitingCodes).not.toContain(codeC);
+      expect(awaitingCodes).not.toContain(codeQ);
+      const apStats = (await (await request.get(`/api/monitor?projectKey=${projKey}`, { headers: ADMIN })).json()).stats;
+      expect(apStats.awaitingAiApprovalFixingCount).toBe(1);
+      expect(apStats.awaitingAiApprovalCount).toBe(2);
     } finally {
       await request.delete(`/api/mcp/tokens?id=${tokenData.token?.id}`, { headers: ADMIN });
       await request.post("/api/auth/me", {

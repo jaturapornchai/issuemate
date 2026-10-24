@@ -359,7 +359,7 @@ export function listApprovalChipState(
   if (issue.type === "question" || issue.status === "deployed" || issue.status === "wont_fix") return null;
   const decided = issue.aiFixApproval?.status;
   if (decided === "approved" || decided === "rejected") return decided;
-  if (issue.status !== "ready_to_fix") return null;
+  if (issue.status !== "ready_to_fix" && issue.status !== "fixing") return null;
   return projectAutoMode ? "auto" : "pending";
 }
 

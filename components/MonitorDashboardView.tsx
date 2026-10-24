@@ -166,8 +166,8 @@ export function MonitorDashboardView({
       key: "ready_to_fix",
       label: "รอแก้ไข",
       hint:
-        stats.awaitingAiApprovalCount > 0
-          ? `รอผู้ดูแลอนุมัติให้ AI แก้ ${stats.awaitingAiApprovalCount}`
+        stats.awaitingAiApprovalCount - stats.awaitingAiApprovalFixingCount > 0
+          ? `รอผู้ดูแลอนุมัติให้ AI แก้ ${stats.awaitingAiApprovalCount - stats.awaitingAiApprovalFixingCount}`
           : "ตรวจสอบแล้ว อยู่ในคิว",
       value: stats.readyToFixIssues,
       tone: "sky",
@@ -176,7 +176,10 @@ export function MonitorDashboardView({
     {
       key: "fixing",
       label: "กำลังแก้ไข",
-      hint: `งานย่อย ${stats.subtasksCompleted}/${stats.subtasksTotal}`,
+      hint:
+        stats.awaitingAiApprovalFixingCount > 0
+          ? `รออนุมัติก่อน AI Deploy ${stats.awaitingAiApprovalFixingCount}`
+          : `งานย่อย ${stats.subtasksCompleted}/${stats.subtasksTotal}`,
       value: stats.fixingIssues,
       tone: "blue",
       testId: "kpi-fixing",

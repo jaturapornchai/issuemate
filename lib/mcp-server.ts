@@ -252,6 +252,7 @@ export function createIssueMateMcpServer(
           pendingClaudeReview: stats.openIssues + stats.reviewingIssues,
           readyForAntigravityFix: stats.readyToFixIssues,
           awaitingAdminApproval: stats.awaitingAiApprovalCount,
+          fixingButNotApprovedForDeploy: stats.awaitingAiApprovalFixingCount,
           currentlyFixing: stats.fixingIssues,
           deployedCount: stats.deployedIssues,
           wontFixCount: stats.wontFixIssues,

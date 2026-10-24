@@ -258,7 +258,7 @@ export interface ListIssuesFilter {
   sortBy?: string;
   sortDir?: "asc" | "desc";
   limit?: number;
-  /** "awaiting" = รอแก้ไขและยังไม่มีการตัดสินจากผู้ดูแล, "approved" = อนุมัติให้ AI แก้แล้ว */
+  /** "awaiting" = รอแก้ไข/กำลังแก้ไขและยังไม่มีการตัดสินจากผู้ดูแล, "approved" = อนุมัติให้ AI แก้แล้ว */
   aiApproval?: "all" | "awaiting" | "approved";
 }
 
@@ -328,7 +328,7 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
   } else if (filter.aiApproval === "awaiting") {
     const autoKeys = await listAutoApproveProjectKeys();
     const awaiting: Filter<IssueRecord>[] = [
-      { status: "ready_to_fix" },
+      { status: { $in: ["ready_to_fix", "fixing"] } },
       { type: { $ne: "question" } },
       { "aiFixApproval.status": { $nin: ["approved", "rejected"] } },
     ];
@@ -1006,6 +1006,7 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
   let subtasksCompleted = 0;
   let activeIncidentsCount = 0;
   let awaitingAiApprovalCount = 0;
+  let awaitingAiApprovalFixingCount = 0;
   let aiApprovedActiveCount = 0;
   const autoApproveKeys = new Set(
     allProjects.filter((p) => p.aiAutoApproval?.enabled).map((p) => p.key)
@@ -1084,12 +1085,13 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     if (!isTerminal && approvalStatus === "approved") {
       aiApprovedActiveCount++;
     } else if (
-      issue.status === "ready_to_fix" &&
+      (issue.status === "ready_to_fix" || issue.status === "fixing") &&
       issue.type !== "question" &&
       approvalStatus !== "rejected" &&
       !autoApproveKeys.has(issue.projectKey)
     ) {
       awaitingAiApprovalCount++;
+      if (issue.status === "fixing") awaitingAiApprovalFixingCount++;
     }
 
     if (Array.isArray(issue.subtasks)) {
@@ -1198,6 +1200,7 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     subtasksCompleted,
     activeIncidentsCount,
     awaitingAiApprovalCount,
+    awaitingAiApprovalFixingCount,
     aiApprovedActiveCount,
     byProject: Array.from(projectStatMap.values()),
     byType,
