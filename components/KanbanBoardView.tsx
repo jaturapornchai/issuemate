@@ -9,7 +9,9 @@ import {
   STATUS_CONFIG,
   TONE,
   Avatar,
-  formatRelativeTime,
+  formatThaiDate,
+  formatThaiTime,
+  formatThaiDateTime,
 } from "./ui/Badges";
 
 const COLUMNS: Array<{ status: IssueStatus; nextStatus?: IssueStatus; nextLabel?: string }> = [
@@ -118,7 +120,9 @@ export function KanbanBoardView({
                       <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2.5 text-[11px] text-fg-subtle">
                         <div className="flex min-w-0 items-center gap-2.5 tabular-nums">
                           {issue.assignee && <Avatar name={issue.assignee} size="sm" />}
-                          <span className="truncate">{formatRelativeTime(issue.createdAt)}</span>
+                          <span className="truncate" title={formatThaiDateTime(issue.createdAt)}>
+                            {formatThaiDate(issue.createdAt)} {formatThaiTime(issue.createdAt)}
+                          </span>
                         </div>
                         <div className="flex shrink-0 items-center gap-2 tabular-nums">
                           {(issue.attachments?.length || 0) > 0 && (

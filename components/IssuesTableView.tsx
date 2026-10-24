@@ -39,7 +39,7 @@ import {
 const COLUMNS: Array<
   ResizableColumnDef & { label: string; sortField: string; align?: "left" | "center" }
 > = [
-  { key: "title", label: "เรื่อง", sortField: "title", defaultWidth: 36 },
+  { key: "title", label: "เรื่อง", sortField: "title", defaultWidth: 37 },
   { key: "status", label: "สถานะ", sortField: "status", defaultWidth: 12 },
   { key: "type", label: "ประเภท", sortField: "type", defaultWidth: 11 },
   { key: "priority", label: "ความเร่งด่วน", sortField: "priority", defaultWidth: 10 },
@@ -442,8 +442,8 @@ export function IssuesTableView({
                 <PriorityBadge priority={issue.priority} compact />
               </div>
               <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3 text-xs text-fg-subtle">
-                <span className="truncate">
-                  {issue.reporter} · {formatRelativeTime(issue.createdAt)}
+                <span className="truncate tabular-nums">
+                  {issue.reporter} · {formatThaiDate(issue.createdAt)} {formatThaiTime(issue.createdAt)}
                 </span>
                 <span className="flex shrink-0 items-center gap-2.5 tabular-nums">
                   {(issue.attachments?.length || 0) > 0 && (

@@ -482,8 +482,8 @@ export function IssueDetailDrawer({
                     แจ้งโดย <strong className="font-medium text-fg">{issue.reporter}</strong>
                   </span>
                   <span className="text-fg-subtle">·</span>
-                  <span title={formatThaiDateTime(issue.createdAt)}>
-                    {formatRelativeTime(issue.createdAt)}
+                  <span className="tabular-nums" title={formatThaiDateTime(issue.createdAt)}>
+                    วันที่เวลาสร้าง <strong className="font-medium text-fg">{formatThaiDateTime(issue.createdAt)}</strong> ({formatRelativeTime(issue.createdAt)})
                   </span>
                   {issue.updatedAt && issue.updatedAt !== issue.createdAt && (
                     <>
