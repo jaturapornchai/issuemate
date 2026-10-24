@@ -165,7 +165,10 @@ export function MonitorDashboardView({
     {
       key: "ready_to_fix",
       label: "รอแก้ไข",
-      hint: "ตรวจสอบแล้ว อยู่ในคิว",
+      hint:
+        stats.awaitingAiApprovalCount > 0
+          ? `รอผู้ดูแลอนุมัติให้ AI แก้ ${stats.awaitingAiApprovalCount}`
+          : "ตรวจสอบแล้ว อยู่ในคิว",
       value: stats.readyToFixIssues,
       tone: "sky",
       testId: "kpi-ready-to-fix",

@@ -15,6 +15,7 @@ import type {
   CommentRecord,
   TimelineEvent,
   MonitorStats,
+  AiFixApproval,
 } from "./types";
 
 export function normalizeProjectKey(raw: string): string {
@@ -180,6 +181,49 @@ export async function createProject(input: {
   return { ...doc, _id: String(res.insertedId) };
 }
 
+export async function getProjectByKey(key: string): Promise<ProjectRecord | null> {
+  const { projects } = await getCollections();
+  const doc = await projects.findOne({ key: normalizeProjectKey(key) });
+  return doc ? { ...doc, _id: String(doc._id) } : null;
+}
+
+/** Turn a project's AI auto mode on/off (AI may fix reviewed issues without per-issue approval) */
+export async function setProjectAiAutoApproval(
+  key: string,
+  enabled: boolean,
+  actor: { name: string; email?: string }
+): Promise<ProjectRecord> {
+  const { projects } = await getCollections();
+  const normalized = normalizeProjectKey(key);
+  const now = new Date().toISOString();
+  const res = await projects.findOneAndUpdate(
+    { key: normalized },
+    {
+      $set: {
+        aiAutoApproval: {
+          enabled,
+          changedBy: actor.name,
+          changedByEmail: actor.email,
+          changedAt: now,
+        },
+        updatedAt: now,
+      },
+    },
+    { returnDocument: "after" }
+  );
+  if (!res) throw new Error(`ไม่พบโปรเจกต์รหัส ${normalized}`);
+  return { ...res, _id: String(res._id) };
+}
+
+/** Project keys whose AI auto mode is on (optionally limited to a scope) */
+async function listAutoApproveProjectKeys(): Promise<string[]> {
+  const { projects } = await getCollections();
+  const docs = await projects
+    .find({ "aiAutoApproval.enabled": true }, { projection: { key: 1 } })
+    .toArray();
+  return docs.map((d) => d.key);
+}
+
 export async function deleteProjectByKey(key: string): Promise<void> {
   const { db, projects, issues } = await getCollections();
   const normalized = normalizeProjectKey(key);
@@ -214,6 +258,8 @@ export interface ListIssuesFilter {
   sortBy?: string;
   sortDir?: "asc" | "desc";
   limit?: number;
+  /** "awaiting" = รอแก้ไขและยังไม่มีการตัดสินจากผู้ดูแล, "approved" = อนุมัติให้ AI แก้แล้ว */
+  aiApproval?: "all" | "awaiting" | "approved";
 }
 
 const ENUM_SORT_ORDER: Record<string, string[]> = {
@@ -275,6 +321,19 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
       { "reviewMeta.reviewReason": regex },
       { "reviewMeta.fixInstructions": regex },
     ];
+  }
+
+  if (filter.aiApproval === "approved") {
+    query["aiFixApproval.status"] = "approved";
+  } else if (filter.aiApproval === "awaiting") {
+    const autoKeys = await listAutoApproveProjectKeys();
+    const awaiting: Filter<IssueRecord>[] = [
+      { status: "ready_to_fix" },
+      { type: { $ne: "question" } },
+      { "aiFixApproval.status": { $nin: ["approved", "rejected"] } },
+    ];
+    if (autoKeys.length > 0) awaiting.push({ projectKey: { $nin: autoKeys } });
+    query.$and = [...(query.$and || []), ...awaiting];
   }
 
   const sortField = filter.sortBy || "createdAt";
@@ -523,6 +582,8 @@ export async function updateIssue(
     aiSummary?: string;
     actor?: string;
     toggleUpvoteBy?: string;
+    /** null = reset to pending. Callers must check approve permission; never set from MCP input. */
+    aiFixApproval?: AiFixApproval | null;
   }
 ): Promise<IssueRecord> {
   const { issues } = await getCollections();
@@ -719,6 +780,37 @@ export async function updateIssue(
     updateFields.upvotes = Math.max(0, currentVoters.size);
   }
 
+  if (patch.aiFixApproval !== undefined) {
+    const nextApproval = patch.aiFixApproval;
+    if (!nextApproval || nextApproval.status === "pending") {
+      if (existing.aiFixApproval) {
+        unsetFields.aiFixApproval = "";
+        pushedTimeline.push({
+          id: crypto.randomUUID(),
+          actor,
+          action: "ai_fix_approval_reset",
+          detail: "ยกเลิกการอนุมัติ — กลับไปรอผู้ดูแลอนุมัติให้ AI แก้ไข",
+          createdAt: now,
+        });
+      }
+    } else {
+      updateFields.aiFixApproval = nextApproval;
+      const note = nextApproval.note ? ` (หมายเหตุ: ${nextApproval.note})` : "";
+      pushedTimeline.push({
+        id: crypto.randomUUID(),
+        actor: nextApproval.decidedBy || actor,
+        action: nextApproval.status === "approved" ? "ai_fix_approved" : "ai_fix_rejected",
+        detail:
+          nextApproval.status === "approved"
+            ? nextApproval.auto
+              ? "อนุมัติให้ AI แก้ไขโดยโหมดอัตโนมัติของโปรเจกต์"
+              : `อนุมัติให้ AI แก้ไขอัตโนมัติ${note}`
+            : `ไม่อนุมัติให้ AI แก้ไข${note}`,
+        createdAt: now,
+      });
+    }
+  }
+
   if (patch.status !== undefined) {
     const validStatus = assertValidStatus(patch.status);
     if (validStatus !== existing.status) {
@@ -729,6 +821,17 @@ export async function updateIssue(
       } else if (existing.status === "deployed" || existing.status === "wont_fix") {
         unsetFields.closedAt = "";
         unsetFields.closedBy = "";
+        // A reopened issue is a new round: the earlier AI approval no longer applies
+        if (existing.aiFixApproval && patch.aiFixApproval === undefined) {
+          unsetFields.aiFixApproval = "";
+          pushedTimeline.push({
+            id: crypto.randomUUID(),
+            actor,
+            action: "ai_fix_approval_reset",
+            detail: "เปิดเรื่องใหม่ — ต้องขออนุมัติให้ AI แก้ไขอีกครั้ง",
+            createdAt: now,
+          });
+        }
       }
 
       pushedTimeline.push({
@@ -902,6 +1005,11 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
   let subtasksTotal = 0;
   let subtasksCompleted = 0;
   let activeIncidentsCount = 0;
+  let awaitingAiApprovalCount = 0;
+  let aiApprovedActiveCount = 0;
+  const autoApproveKeys = new Set(
+    allProjects.filter((p) => p.aiAutoApproval?.enabled).map((p) => p.key)
+  );
 
   const byType: Record<IssueType, number> = {
     question: 0,
@@ -970,6 +1078,18 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
 
     if (issue.type === "incident" && !isTerminal) {
       activeIncidentsCount++;
+    }
+
+    const approvalStatus = issue.aiFixApproval?.status;
+    if (!isTerminal && approvalStatus === "approved") {
+      aiApprovedActiveCount++;
+    } else if (
+      issue.status === "ready_to_fix" &&
+      issue.type !== "question" &&
+      approvalStatus !== "rejected" &&
+      !autoApproveKeys.has(issue.projectKey)
+    ) {
+      awaitingAiApprovalCount++;
     }
 
     if (Array.isArray(issue.subtasks)) {
@@ -1077,6 +1197,8 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     subtasksTotal,
     subtasksCompleted,
     activeIncidentsCount,
+    awaitingAiApprovalCount,
+    aiApprovedActiveCount,
     byProject: Array.from(projectStatMap.values()),
     byType,
     byPriority,

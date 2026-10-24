@@ -5,10 +5,15 @@
 ## โครงสร้าง 6 สถานะใน DevOps Pipeline (`IssueStatus`)
 1. `open` — **1. รอรีวิว (Pending Antigravity)**
 2. `reviewing` — **2. กำลังรีวิว (Antigravity Reviewing)**
-3. `ready_to_fix` — **3. รอแก้ (Ready for Antigravity — รีวิวผ่านแล้ว มี `reviewReason`, `fixInstructions`, `targetFiles`, `deployCommand`)**
+3. `ready_to_fix` — **3. รอแก้ (Ready for Antigravity — รีวิวผ่านแล้ว มี `reviewReason`, `fixInstructions`, `targetFiles`, `deployCommand`)** — AI เริ่มแก้ได้เมื่อผู้ดูแลอนุมัติ (`aiFixApproval.status = "approved"`) หรือโปรเจกต์เปิดโหมดอัตโนมัติ (`project.aiAutoApproval.enabled`)
 4. `fixing` — **4. กำลังแก้/Deploy (Antigravity Fixing & Deploying)**
 5. `deployed` — **5. Deploy แล้ว (Deployed & Verified — พร้อม `deployResult`)**
 6. `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected — รีวิวแล้วตัดสินใจไม่แก้ พร้อม `reviewReason`)**
+
+## การอนุมัติก่อนให้ AI แก้ไข (Admin Approval Gate)
+- กฎทั้งหมดอยู่ใน `lib/ai-approval.ts` (ใช้ร่วมกันทั้ง MCP และ UI): สถานะ `fixing`/`deployed` ผ่าน MCP ต้องได้รับอนุมัติ, การ "ไม่อนุมัติ" ชนะโหมดอัตโนมัติเสมอ, เรื่องประเภท `question` ไม่ต้องอนุมัติ
+- อนุมัติได้เฉพาะ Admin / `project_admin` ผ่านหน้าเว็บ (`PATCH /api/issues/[code]` ด้วย `aiFixApproval`, `PATCH /api/projects` ด้วย `aiAutoApproval`) — ห้ามเพิ่มช่องทางอนุมัติผ่าน MCP
+- ทุก MCP tool ที่พาเรื่องเข้า `fixing`/`deployed` ต้องเรียก `requireAiFixApproval` ใน `lib/mcp-server.ts`
 
 ## โครงสร้างไฟล์หลัก (Key Files)
 - `lib/types.ts` — โครงสร้างข้อมูลทั้งหมด (`ProjectRecord`, `IssueRecord`, `IssueType` รวม `"question"`, `DevopsMetadata`, `ReviewAndFixMeta`, `MonitorStats`)

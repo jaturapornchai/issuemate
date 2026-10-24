@@ -23,6 +23,7 @@ import {
   Terminal,
   CircleAlert,
   Info,
+  Loader2,
 } from "lucide-react";
 import {
   IssueRecord,
@@ -31,6 +32,8 @@ import {
   IssueType,
   AttachmentRecord,
   ReviewAndFixMeta,
+  AiAutoApprovalSetting,
+  AiFixApprovalStatus,
 } from "@/lib/types";
 import {
   StatusBadge,
@@ -46,7 +49,9 @@ import {
   TONE,
   formatThaiDateTime,
   formatRelativeTime,
+  AI_APPROVAL_UI,
 } from "./ui/Badges";
+import { aiApprovalDisplayState } from "@/lib/ai-approval";
 import { FileUploadZone, AttachmentGallery } from "./ui/FileAttachmentZone";
 import { Notice } from "./ui/Dialog";
 import { type ProjectPermissionLevel } from "@/lib/permissions";
@@ -73,6 +78,7 @@ interface IssueDetailDrawerProps {
   userPermission?: ProjectPermissionLevel | "none";
   projectName?: string;
   projectColor?: string;
+  projectAutoApproval?: AiAutoApprovalSetting;
 }
 
 const MAIN_STEPS: IssueStatus[] = ["open", "reviewing", "ready_to_fix", "fixing", "deployed"];
@@ -116,6 +122,7 @@ export function IssueDetailDrawer({
   userPermission = "project_admin",
   projectName,
   projectColor,
+  projectAutoApproval,
 }: IssueDetailDrawerProps) {
   const [commentBody, setCommentBody] = useState("");
   const [commentAuthor, setCommentAuthor] = useState(currentUserName || "ผู้ใช้งาน");
@@ -149,6 +156,8 @@ export function IssueDetailDrawer({
   const [deployResult, setDeployResult] = useState("");
   const [savingReview, setSavingReview] = useState(false);
   const [savedReviewNotice, setSavedReviewNotice] = useState(false);
+  const [approvalNote, setApprovalNote] = useState("");
+  const [savingApproval, setSavingApproval] = useState(false);
 
   useEffect(() => {
     if (currentUserName) {
@@ -181,6 +190,7 @@ export function IssueDetailDrawer({
     setCommentFeedback(null);
     setCommentBody("");
     setCommentAttachments([]);
+    setApprovalNote("");
   }, [issue?.code]);
 
   useEffect(() => {
@@ -291,14 +301,33 @@ export function IssueDetailDrawer({
     const prompt = `คุณกำลังดูแลโปรเจกต์ [${issue.projectKey}] ให้ดึง Issue ${issue.code} ("${issue.title}") จาก MCP IssueMate (ระบุ projectKey="${issue.projectKey}") มาดำเนินการโดย Antigravity:
 1. เรียก get_issue (${issue.code}) เพื่ออ่านรายละเอียดและดูรูปภาพ/ไฟล์แนบทั้งหมดใน Issue ${issue.code}
 2. วิเคราะห์สาเหตุของปัญหาแล้วบันทึกผลด้วย submit_claude_review
-3. ถ้าต้องแก้ไข ให้รับงาน (claim_for_fix) แก้ไขโค้ดในโปรเจกต์ [${issue.projectKey}] ทดสอบให้ผ่าน และ Deploy ขึ้นเซิร์ฟเวอร์
-4. บันทึกผลการแก้ไขและ Deploy กลับเข้า IssueMate ด้วย mark_deployed`;
+3. ตรวจ aiFixAllowed จาก get_issue — ถ้าเป็น false (ผู้ดูแลยังไม่อนุมัติให้ AI แก้ไข) ให้หยุดและห้ามแก้โค้ด
+4. ถ้าได้รับอนุมัติแล้ว ให้รับงาน (claim_for_fix) แก้ไขโค้ดในโปรเจกต์ [${issue.projectKey}] ทดสอบให้ผ่าน และ Deploy ขึ้นเซิร์ฟเวอร์
+5. บันทึกผลการแก้ไขและ Deploy กลับเข้า IssueMate ด้วย mark_deployed`;
     navigator.clipboard.writeText(prompt);
     setCopiedAgPrompt(true);
     setTimeout(() => setCopiedAgPrompt(false), 2000);
   };
 
   const canManageStatus = userPermission === "developer" || userPermission === "project_admin";
+  const canApproveAi = userPermission === "project_admin";
+  const approvalState = aiApprovalDisplayState(issue, { aiAutoApproval: projectAutoApproval });
+  const approval = issue.aiFixApproval;
+  const isClosed = issue.status === "deployed" || issue.status === "wont_fix";
+
+  const handleAiApproval = async (status: AiFixApprovalStatus) => {
+    setSavingApproval(true);
+    const ok = await runDrawerUpdate(
+      { aiFixApproval: { status, note: approvalNote.trim() || undefined } },
+      status === "approved"
+        ? "อนุมัติให้ AI แก้ไขเรื่องนี้แล้ว"
+        : status === "rejected"
+          ? "บันทึก “ไม่อนุมัติให้ AI แก้ไข” แล้ว"
+          : "ยกเลิกการตัดสินแล้ว — กลับไปรอผู้ดูแลอนุมัติ"
+    );
+    if (ok) setApprovalNote("");
+    setSavingApproval(false);
+  };
   const canDeleteIssue = userPermission === "project_admin";
   const canComment = userPermission !== "viewer" && userPermission !== "none";
 
@@ -609,6 +638,109 @@ export function IssueDetailDrawer({
                   </button>
                 </div>
               </div>
+
+              {/* AI fix approval */}
+              {approvalState !== "not_required" && (() => {
+                const cfg = AI_APPROVAL_UI[approvalState];
+                const Icon = cfg.icon;
+                const tone = TONE[cfg.tone];
+                return (
+                  <section
+                    data-testid="ai-approval-section"
+                    data-state={approvalState}
+                    className="rounded-2xl border border-line bg-white/[0.02] p-4 sm:p-5"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone.soft}`}>
+                        <Icon className={`h-4 w-4 ${tone.text}`} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold text-fg">{cfg.label}</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-fg-subtle">
+                          {approvalState === "approved" || approvalState === "rejected" ? (
+                            <>
+                              โดย <strong className="font-medium text-fg-muted">{approval?.decidedBy || "-"}</strong>
+                              {approval?.decidedAt && <> · {formatThaiDateTime(approval.decidedAt)}</>}
+                              {approval?.auto && <> · ผ่านโหมดอัตโนมัติของโปรเจกต์</>}
+                            </>
+                          ) : approvalState === "auto" ? (
+                            <>
+                              เปิดโหมดอัตโนมัติโดย{" "}
+                              <strong className="font-medium text-fg-muted">{projectAutoApproval?.changedBy || "-"}</strong> — AI
+                              แก้ไขได้ทันทีโดยไม่ต้องรอ (ยกเว้นเรื่องที่กด “ไม่อนุมัติ”)
+                            </>
+                          ) : (
+                            <>
+                              AI วิเคราะห์ได้ แต่จะยังไม่แก้โค้ดจนกว่าผู้ดูแลจะอนุมัติ
+                              {!canApproveAi && " — ผู้ดูแลโปรเจกต์หรือ Admin เป็นผู้อนุมัติ"}
+                            </>
+                          )}
+                        </p>
+                        {approval?.note && (
+                          <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-fg-muted">
+                            “{approval.note}”
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {canApproveAi && !isClosed && (
+                      <div className="mt-4 space-y-2.5 border-t border-line pt-4">
+                        <input
+                          type="text"
+                          data-testid="ai-approval-note-input"
+                          value={approvalNote}
+                          onChange={(e) => setApprovalNote(e.target.value)}
+                          maxLength={500}
+                          placeholder="หมายเหตุถึง AI / ทีม (ไม่บังคับ) เช่น ห้ามแตะส่วนรายงานภาษี"
+                          className="input h-9"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {approval?.status !== "approved" && (
+                            <button
+                              type="button"
+                              data-testid="ai-approve-btn"
+                              disabled={savingApproval}
+                              onClick={() => void handleAiApproval("approved")}
+                              className="btn btn-primary btn-sm"
+                            >
+                              {savingApproval ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                              )}
+                              อนุมัติให้ AI แก้ไข
+                            </button>
+                          )}
+                          {approval?.status !== "rejected" && (
+                            <button
+                              type="button"
+                              data-testid="ai-reject-btn"
+                              disabled={savingApproval}
+                              onClick={() => void handleAiApproval("rejected")}
+                              className="btn btn-secondary btn-sm"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              ไม่อนุมัติ
+                            </button>
+                          )}
+                          {approval && (
+                            <button
+                              type="button"
+                              data-testid="ai-approval-reset-btn"
+                              disabled={savingApproval}
+                              onClick={() => void handleAiApproval("pending")}
+                              className="btn btn-ghost btn-sm"
+                            >
+                              ยกเลิกการตัดสิน
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                );
+              })()}
 
               {/* Description */}
               <section>

@@ -52,6 +52,9 @@ export async function GET(req: Request) {
     const search = searchParams.get("search") || undefined;
     const sortBy = searchParams.get("sortBy") || undefined;
     const sortDir = (searchParams.get("sortDir") as "asc" | "desc") || undefined;
+    const rawAiApproval = searchParams.get("aiApproval");
+    const aiApproval =
+      rawAiApproval === "awaiting" || rawAiApproval === "approved" ? rawAiApproval : undefined;
 
     const issues = await listIssues({
       projectKey: scope,
@@ -63,6 +66,7 @@ export async function GET(req: Request) {
       search,
       sortBy,
       sortDir,
+      aiApproval,
     });
     return NextResponse.json({ issues });
   } catch (err: unknown) {

@@ -1020,7 +1020,7 @@ interface McpTokenPublic {
 const MCP_TOOLS: Array<{ name: string; desc: string }> = [
   { name: "get_ai_context", desc: "ดึงคิวรอรีวิว และคิวรอแก้/Deploy เฉพาะโปรเจกต์ที่ระบุ" },
   { name: "submit_claude_review", desc: "บันทึกผลวิเคราะห์: สั่งแก้ (ready_to_fix) หรือไม่แก้ (wont_fix)" },
-  { name: "claim_for_fix", desc: "รับงานเข้าสู่สถานะกำลังแก้ (fixing)" },
+  { name: "claim_for_fix", desc: "รับงานเข้าสู่สถานะกำลังแก้ (fixing) — เฉพาะเรื่องที่ผู้ดูแลอนุมัติแล้ว" },
   { name: "mark_deployed", desc: "บันทึกผลหลังแก้และ Deploy สำเร็จ (deployed)" },
   { name: "list_projects", desc: "รายชื่อโปรเจกต์ที่ได้รับสิทธิ์ พร้อมจำนวนงานค้าง" },
   { name: "create_project", desc: "สร้างโปรเจกต์ใหม่หลังถามยืนยันกับผู้ใช้แล้ว" },
@@ -1278,8 +1278,9 @@ export function AiMcpGuideModal({
    - หากยังไม่มีโปรเจกต์ "${targetConfigProject}" ในระบบ ให้ถามยืนยันรหัสย่อ (key), ชื่อโปรเจกต์ (name) และคำอธิบาย (description) กับฉันให้เรียบร้อยก่อน แล้วจึงเรียก \`create_project\` โดยส่ง \`confirmedByUser: true\`
 2. สำหรับแต่ละ Issue ให้เรียก \`get_issue\` เพื่ออ่านรายละเอียดและเปิดดูรูปภาพ/ไฟล์แนบทั้งหมดที่ผู้ใช้แนบไว้
 3. วิเคราะห์สาเหตุของปัญหา แล้วเรียก \`submit_claude_review\` บันทึกผลวิเคราะห์ (เลือก decision="fix" พร้อมระบุ fixInstructions และ targetFiles หรือ decision="wont_fix" หากไม่ต้องแก้)
-4. เรียก \`claim_for_fix\` เพื่อรับงานเข้าสู่สถานะกำลังแก้ (fixing) จากนั้นลงมือแก้ไขโค้ดในโปรเจกต์นี้ ทดสอบให้ผ่านจริง และ Deploy ขึ้นเซิร์ฟเวอร์
-5. เมื่อแก้ไขและ Deploy เสร็จเรียบร้อยแล้ว ให้เรียก \`mark_deployed\` บันทึกผลการแก้ไขและผลการ Deploy กลับเข้า IssueMate ทันที`;
+4. แก้โค้ดได้เฉพาะเรื่องที่ \`aiFixAllowed: true\` (ผู้ดูแลกดอนุมัติให้ AI แก้ไขแล้ว หรือโปรเจกต์เปิดโหมดอัตโนมัติ) — เรื่องที่ยังไม่อนุมัติให้ข้ามไปและห้ามแก้โค้ด
+5. เรียก \`claim_for_fix\` เพื่อรับงานเข้าสู่สถานะกำลังแก้ (fixing) จากนั้นลงมือแก้ไขโค้ดในโปรเจกต์นี้ ทดสอบให้ผ่านจริง และ Deploy ขึ้นเซิร์ฟเวอร์
+6. เมื่อแก้ไขและ Deploy เสร็จเรียบร้อยแล้ว ให้เรียก \`mark_deployed\` บันทึกผลการแก้ไขและผลการ Deploy กลับเข้า IssueMate ทันที`;
 
   const unmaskedUsers = allowedUsers.filter((u) => !u.email.includes("***"));
 

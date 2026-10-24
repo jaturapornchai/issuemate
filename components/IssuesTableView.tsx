@@ -34,6 +34,9 @@ import {
   formatThaiDate,
   formatThaiTime,
   formatRelativeTime,
+  AiApprovalBadge,
+  listApprovalChipState,
+  type AiApprovalDisplay,
 } from "@/components/ui/Badges";
 
 const COLUMNS: Array<
@@ -65,7 +68,7 @@ const SEVERITY_CLASS: Record<string, string> = {
   "SEV-3": "bg-amber-400/10 text-amber-200 ring-amber-400/25",
 };
 
-function ContextLine({ issue }: { issue: IssueRecord }) {
+function ContextLine({ issue, approval }: { issue: IssueRecord; approval?: AiApprovalDisplay | null }) {
   const ops = issue.devopsMeta;
   const rev = issue.reviewMeta;
   const sev = ops?.incidentSeverity?.toUpperCase();
@@ -77,6 +80,7 @@ function ContextLine({ issue }: { issue: IssueRecord }) {
   return (
     <div className="mt-1 flex min-w-0 items-center gap-2 overflow-hidden text-xs leading-none text-fg-subtle">
       <span className="truncate">แจ้งโดย {issue.reporter}</span>
+      {approval && <AiApprovalBadge state={approval} compact className="h-5 shrink-0 px-2 text-[11px]" />}
       {sev && (
         <span
           title={`ระดับความรุนแรง${ops?.environment ? ` • ${ops.environment}` : ""}`}
@@ -204,6 +208,7 @@ export function IssuesTableView({
   hasActiveFilters = false,
   onResetFilters,
   onCreate,
+  autoApproveProjectKeys = [],
 }: {
   issues: IssueRecord[];
   selectedCode?: string;
@@ -217,7 +222,10 @@ export function IssuesTableView({
   hasActiveFilters?: boolean;
   onResetFilters?: () => void;
   onCreate?: () => void;
+  autoApproveProjectKeys?: string[];
 }) {
+  const approvalOf = (issue: IssueRecord) =>
+    listApprovalChipState(issue, autoApproveProjectKeys.includes(issue.projectKey));
   const {
     isCustomized,
     activeKey,
@@ -351,7 +359,7 @@ export function IssuesTableView({
                         </span>
                       ))}
                     </div>
-                    <ContextLine issue={issue} />
+                    <ContextLine issue={issue} approval={approvalOf(issue)} />
                   </td>
                   <td style={getColStyle("status")} className="overflow-hidden px-3 py-3 align-middle">
                     <StatusBadge status={issue.status} compact />
@@ -440,6 +448,7 @@ export function IssuesTableView({
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <TypeBadge type={issue.type} compact />
                 <PriorityBadge priority={issue.priority} compact />
+                {approvalOf(issue) && <AiApprovalBadge state={approvalOf(issue)!} compact />}
               </div>
               <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3 text-xs text-fg-subtle">
                 <span className="truncate tabular-nums">

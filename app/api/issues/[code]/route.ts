@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getIssueByCode, updateIssue, deleteIssue } from "@/lib/issue-service";
+import type { AiFixApproval } from "@/lib/types";
 import { sanitizeClientAttachments } from "@/lib/minio";
 import {
   assertCsrfSafe,
@@ -77,8 +78,40 @@ export async function PATCH(
       );
     }
 
+    // AI fix approval: only Admin / project_admin, recorded with the session identity
+    let approvalPatch: AiFixApproval | null | undefined;
+    if (body.aiFixApproval !== undefined) {
+      const approveCheck = validateUserProjectAction(user, existing.projectKey, "approve_ai_fix");
+      if (!approveCheck.allowed) {
+        return NextResponse.json(
+          { error: approveCheck.reason, permission: approveCheck.permission },
+          { status: 403 }
+        );
+      }
+      const nextStatus = body.aiFixApproval?.status;
+      if (!["approved", "rejected", "pending"].includes(nextStatus)) {
+        return NextResponse.json(
+          { error: "สถานะการอนุมัติต้องเป็น approved, rejected หรือ pending" },
+          { status: 400 }
+        );
+      }
+      const note = String(body.aiFixApproval?.note || "").trim().slice(0, 500);
+      approvalPatch =
+        nextStatus === "pending"
+          ? null
+          : {
+              status: nextStatus,
+              decidedBy: user.name,
+              decidedByEmail: user.email,
+              decidedAt: new Date().toISOString(),
+              ...(note ? { note } : {}),
+            };
+    }
+
     const patch = { ...body, actor: user.name };
     delete patch.actorEmail;
+    delete patch.aiFixApproval;
+    if (approvalPatch !== undefined) patch.aiFixApproval = approvalPatch;
     if (patch.attachments !== undefined) {
       patch.attachments = sanitizeClientAttachments(patch.attachments, user.name);
     }
