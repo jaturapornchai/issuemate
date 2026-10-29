@@ -2,6 +2,9 @@
 
 > ระบบบริหารจัดการปัญหาและ DevOps Pipeline สำหรับ **Antigravity (Review -> Fix -> Deploy)** บนโดเมนจริง **`https://issue.dedezoom.com`**
 
+## ขอบเขตงาน (ลุงจืดตั้งกฎ 2026-10-29)
+- แก้ไฟล์ / commit / deploy ได้เฉพาะใน `D:\issuemate` — project อื่น (เช่น UAT Tester `D:\test02\openhands-swarm`, SML AI Account) อ่านเพื่อวิเคราะห์ได้ แต่ห้ามแก้ ถ้าต้องแก้ที่นั่นให้เขียน prompt ให้ลุงจืดไปสั่งเอง
+
 ## โครงสร้าง 6 สถานะใน DevOps Pipeline (`IssueStatus`)
 1. `open` — **1. รอรีวิว (Pending Antigravity)**
 2. `reviewing` — **2. กำลังรีวิว (Antigravity Reviewing)**
