@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------
-   IssueMate design tokens
-   One dark, calm palette: neutral surfaces + a single emerald accent.
-   Status / priority colours only appear in small pills and dots.
+   IssueMate design tokens — "Aurora"
+   Deep indigo canvas lit by violet/cyan light, frosted-glass surfaces,
+   one violet→blue brand gradient. Status / priority colours (emerald =
+   done, amber = waiting, rose = urgent...) only appear in pills and dots.
 ------------------------------------------------------------------- */
 
 @theme inline {
@@ -14,23 +15,33 @@
 }
 
 @theme {
-  --color-canvas: #07090e;
-  --color-surface: #0c0f16;
-  --color-raised: #131722;
-  --color-overlay: #0f131b;
-  --color-line: rgb(255 255 255 / 0.07);
-  --color-line-strong: rgb(255 255 255 / 0.13);
-  --color-fg: #eceff5;
-  --color-fg-muted: #a3acba;
-  --color-fg-subtle: #6d7787;
+  --color-canvas: #06071a;
+  --color-surface: #0d0f26;
+  --color-raised: #161a3d;
+  --color-overlay: #0f1130;
+  --color-glass: rgb(20 22 54 / 0.55);
+  --color-line: rgb(199 210 254 / 0.09);
+  --color-line-strong: rgb(199 210 254 / 0.18);
+  --color-fg: #eef0ff;
+  --color-fg-muted: #a9aecd;
+  --color-fg-subtle: #737a9e;
 
-  --shadow-pop: 0 24px 64px -16px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.06);
-  --shadow-glow: 0 10px 30px -12px rgb(16 185 129 / 0.55);
+  /* Brand accent (violet). Pair with cyan-300/400 for the aurora gradient. */
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-950: #1e0b46;
 
-  --animate-fade-in: fade-in 0.16s ease-out both;
-  --animate-scale-in: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
-  --animate-slide-in-right: slide-in-right 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
-  --animate-toast-in: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --shadow-pop: 0 30px 80px -20px rgb(2 3 20 / 0.85), 0 0 0 1px rgb(199 210 254 / 0.08);
+  --shadow-glow: 0 10px 34px -12px rgb(139 92 246 / 0.75);
+  --shadow-lift: 0 18px 40px -18px rgb(76 29 149 / 0.65), 0 0 0 1px rgb(199 210 254 / 0.14);
+
+  --animate-fade-in: fade-in 0.18s ease-out both;
+  --animate-scale-in: scale-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-sheet-in: sheet-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 
   @keyframes fade-in {
     from {
@@ -43,31 +54,29 @@
   @keyframes scale-in {
     from {
       opacity: 0;
-      transform: translateY(8px) scale(0.985);
+      transform: translateY(10px) scale(0.97);
     }
     to {
       opacity: 1;
       transform: none;
     }
   }
-  @keyframes slide-in-right {
+  @keyframes sheet-in {
     from {
-      opacity: 0.4;
-      transform: translateX(32px);
+      opacity: 0.6;
+      transform: translateY(48px);
     }
     to {
       opacity: 1;
       transform: none;
     }
   }
-  @keyframes toast-in {
+  @keyframes shimmer {
     from {
-      opacity: 0;
-      transform: translateY(12px) scale(0.97);
+      background-position: 100% 0;
     }
     to {
-      opacity: 1;
-      transform: none;
+      background-position: 0 0;
     }
   }
 }
@@ -83,6 +92,12 @@ body {
 
 body {
   background-color: var(--color-canvas);
+  /* The aurora: three soft light sources, fixed so they don't scroll away */
+  background-image:
+    radial-gradient(56rem 36rem at -4% -10%, rgb(124 58 237 / 0.22), transparent 62%),
+    radial-gradient(48rem 32rem at 104% -4%, rgb(34 211 238 / 0.12), transparent 62%),
+    radial-gradient(46rem 30rem at 58% 118%, rgb(192 38 211 / 0.1), transparent 62%);
+  background-attachment: fixed;
   color: var(--color-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -91,7 +106,7 @@ body {
 }
 
 ::selection {
-  background: rgb(16 185 129 / 0.35);
+  background: rgb(139 92 246 / 0.4);
   color: #fff;
 }
 
@@ -104,24 +119,24 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.08);
+  background: rgb(199 210 254 / 0.1);
   border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.18);
+  background: rgb(199 210 254 / 0.22);
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 * {
-  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+  scrollbar-color: rgb(199 210 254 / 0.14) transparent;
   scrollbar-width: thin;
 }
 
 select option {
-  background: #0f131b;
-  color: #eceff5;
+  background: #0f1130;
+  color: #eef0ff;
 }
 
 summary {
@@ -132,9 +147,9 @@ summary::-webkit-details-marker {
 }
 
 @layer components {
-  /* Buttons */
+  /* Buttons — every button presses in slightly (motion feedback) */
   .btn {
-    @apply inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-[13px] leading-none font-medium whitespace-nowrap transition duration-150 select-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45;
+    @apply inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-[13px] leading-none font-medium whitespace-nowrap transition duration-200 ease-out select-none focus-visible:ring-2 focus-visible:ring-brand-400/60 focus-visible:outline-none active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45;
   }
   .btn-sm {
     @apply h-8 gap-1.5 px-2.5 text-xs;
@@ -149,13 +164,26 @@ summary::-webkit-details-marker {
     @apply aspect-square px-0;
   }
   .btn-primary {
-    @apply bg-emerald-500 font-semibold text-emerald-950 shadow-[inset_0_1px_0_rgb(255_255_255/0.3),0_6px_20px_-8px_rgb(16_185_129/0.75)] hover:bg-emerald-400 active:bg-emerald-500;
+    @apply font-semibold text-white;
+    /* violet → indigo → blue keeps white text above 4.5:1 along the whole gradient */
+    background-image: linear-gradient(115deg, #7c3aed 0%, #4f46e5 50%, #2563eb 100%);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.25),
+      0 8px 24px -10px rgb(124 58 237 / 0.85);
+  }
+  .btn-primary:hover {
+    background-position: 100% 50%;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.3),
+      0 10px 30px -10px rgb(37 99 235 / 0.8);
   }
   .btn-secondary {
-    @apply border border-line bg-white/[0.04] text-fg hover:border-line-strong hover:bg-white/[0.08];
+    @apply border border-line bg-white/[0.045] text-fg hover:border-line-strong hover:bg-white/[0.09];
   }
   .btn-ghost {
-    @apply text-fg-muted hover:bg-white/[0.06] hover:text-fg;
+    @apply text-fg-muted hover:bg-white/[0.07] hover:text-fg;
   }
   .btn-danger {
     @apply border border-rose-500/25 bg-rose-500/10 text-rose-300 hover:border-rose-400/40 hover:bg-rose-500/20;
@@ -167,12 +195,22 @@ summary::-webkit-details-marker {
     @apply bg-white font-semibold text-slate-900 shadow-[0_8px_24px_-10px_rgb(255_255_255/0.35)] hover:bg-slate-100;
   }
 
-  /* Surfaces */
+  /* Surfaces — frosted glass over the aurora */
+  .glass {
+    @apply border-line bg-glass backdrop-blur-xl;
+  }
   .card {
-    @apply rounded-2xl border border-line bg-surface;
+    @apply rounded-2xl border border-line bg-glass shadow-[inset_0_1px_0_rgb(255_255_255/0.05)] backdrop-blur-xl;
   }
   .card-inset {
-    @apply rounded-xl border border-line bg-white/[0.02];
+    @apply rounded-xl border border-line bg-white/[0.025];
+  }
+  /* Hover lift for clickable cards/tiles */
+  .lift {
+    @apply transition-[translate,border-color,box-shadow,background-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lift;
+  }
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-200 via-white to-cyan-200 bg-clip-text text-transparent;
   }
 
   /* Forms */
@@ -180,14 +218,14 @@ summary::-webkit-details-marker {
     @apply mb-1.5 block text-xs font-medium text-fg-muted;
   }
   .input {
-    @apply h-10 w-full rounded-lg border border-line bg-black/25 px-3 text-[13px] text-fg transition placeholder:text-fg-subtle hover:border-line-strong focus:border-emerald-400/60 focus:bg-black/35 focus:ring-4 focus:ring-emerald-400/10 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
+    @apply h-10 w-full rounded-lg border border-line bg-[rgb(6_7_26/0.55)] px-3 text-[13px] text-fg transition placeholder:text-fg-subtle hover:border-line-strong focus:border-brand-400/60 focus:bg-[rgb(6_7_26/0.75)] focus:ring-4 focus:ring-brand-400/15 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
   }
   .textarea {
-    @apply w-full rounded-lg border border-line bg-black/25 px-3 py-2.5 text-[13px] leading-relaxed text-fg transition placeholder:text-fg-subtle hover:border-line-strong focus:border-emerald-400/60 focus:bg-black/35 focus:ring-4 focus:ring-emerald-400/10 focus:outline-none;
+    @apply w-full rounded-lg border border-line bg-[rgb(6_7_26/0.55)] px-3 py-2.5 text-[13px] leading-relaxed text-fg transition placeholder:text-fg-subtle hover:border-line-strong focus:border-brand-400/60 focus:bg-[rgb(6_7_26/0.75)] focus:ring-4 focus:ring-brand-400/15 focus:outline-none;
   }
   .select {
-    @apply h-10 w-full cursor-pointer appearance-none rounded-lg border border-line bg-black/25 pr-8 pl-3 text-[13px] text-fg transition hover:border-line-strong focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b95a5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    @apply h-10 w-full cursor-pointer appearance-none rounded-lg border border-line bg-[rgb(6_7_26/0.55)] pr-8 pl-3 text-[13px] text-fg transition hover:border-line-strong focus:border-brand-400/60 focus:ring-4 focus:ring-brand-400/15 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a9aecd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 0.6rem center;
     background-size: 14px;
@@ -198,15 +236,37 @@ summary::-webkit-details-marker {
     @apply inline-flex h-6 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs leading-none font-medium whitespace-nowrap ring-1 ring-inset;
   }
   .kbd {
-    @apply inline-flex h-5 items-center rounded-md border border-line bg-white/[0.04] px-1.5 font-mono text-[10px] font-medium text-fg-muted;
+    @apply inline-flex h-5 items-center rounded-md border border-line bg-white/[0.05] px-1.5 font-mono text-[10px] font-medium text-fg-muted;
   }
   .count {
-    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/[0.06] px-1.5 text-[11px] leading-none font-semibold text-fg-muted tabular-nums;
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/[0.07] px-1.5 text-[11px] leading-none font-semibold text-fg-muted tabular-nums;
   }
   .section-label {
-    @apply px-2 text-[11px] font-semibold text-fg-subtle;
+    @apply px-2 text-[11px] font-semibold tracking-wide text-fg-subtle;
   }
+  /* Loading placeholder with a light sweep instead of a blink */
   .skeleton {
-    @apply animate-pulse rounded-md bg-white/[0.06];
+    @apply rounded-md;
+    background-image: linear-gradient(
+      90deg,
+      rgb(199 210 254 / 0.05) 30%,
+      rgb(199 210 254 / 0.12) 50%,
+      rgb(199 210 254 / 0.05) 70%
+    );
+    background-size: 300% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* Respect the OS "reduce motion" setting for every CSS animation/transition.
+   Loading spinners keep turning: they carry meaning, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

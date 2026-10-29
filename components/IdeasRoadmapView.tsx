@@ -4,6 +4,7 @@ import React from "react";
 import { ThumbsUp, Plus, MessageSquare, Paperclip, Trophy, ListChecks, Sparkles } from "lucide-react";
 import type { IssueRecord, IssueStatus } from "@/lib/types";
 import { PriorityBadge, TypeBadge, STATUS_CONFIG, TONE } from "@/components/ui/Badges";
+import { motion, rise } from "@/components/ui/Motion";
 
 const STAGES: Array<{ key: string; statuses: IssueStatus[]; title: string; desc: string; tone: keyof typeof TONE }> = [
   { key: "pending_review", statuses: ["open", "reviewing"], title: "รอตรวจสอบ", desc: "รอทีมงานพิจารณาความจำเป็น", tone: "amber" },
@@ -32,7 +33,14 @@ function VoteButton({ item, onUpvote, size = "md" }: { item: IssueRecord; onUpvo
       }`}
     >
       <ThumbsUp className={size === "md" ? "h-4 w-4" : "h-3.5 w-3.5"} />
-      <span className={`mt-1 font-semibold tabular-nums ${size === "md" ? "text-sm" : "text-xs"}`}>{item.upvotes || 0}</span>
+      <motion.span
+        key={item.upvotes || 0}
+        initial={{ y: -6, opacity: 0, scale: 1.35 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        className={`mt-1 font-semibold tabular-nums ${size === "md" ? "text-sm" : "text-xs"}`}
+      >
+        {item.upvotes || 0}
+      </motion.span>
     </button>
   );
 }
@@ -57,7 +65,7 @@ export function IdeasRoadmapView({
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight text-fg">โหวต & แผนงาน</h2>
+            <h2 className="text-gradient text-lg font-semibold tracking-tight">โหวต & แผนงาน</h2>
             <p className="mt-1 text-[13px] text-fg-muted">
               ช่วยกันโหวตเรื่องที่สำคัญที่สุด ทีมงานจะหยิบเรื่องที่ได้คะแนนสูงไปทำก่อน
             </p>
@@ -92,13 +100,14 @@ export function IdeasRoadmapView({
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {top.map((item, idx) => (
-                <div
+                <motion.div
                   key={item.code}
+                  {...rise(idx)}
                   role="button"
                   tabIndex={0}
                   onClick={() => onSelectIssue(item)}
                   onKeyDown={(e) => e.key === "Enter" && onSelectIssue(item)}
-                  className="group flex cursor-pointer items-stretch gap-3 rounded-xl border border-line bg-white/[0.02] p-3 transition hover:border-line-strong hover:bg-white/[0.04]"
+                  className="group flex cursor-pointer items-stretch gap-3 rounded-xl border border-line bg-white/[0.02] p-3 lift hover:bg-white/[0.04]"
                 >
                   <VoteButton item={item} onUpvote={onUpvote} />
                   <div className="flex min-w-0 flex-1 flex-col justify-between">
@@ -133,7 +142,7 @@ export function IdeasRoadmapView({
                       </div>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           )}
@@ -141,10 +150,10 @@ export function IdeasRoadmapView({
 
         {/* Roadmap stages */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {STAGES.map((stage) => {
+          {STAGES.map((stage, si) => {
             const items = sortedByVotes.filter((i) => stage.statuses.includes(i.status));
             return (
-              <section key={stage.key} className="flex flex-col rounded-2xl border border-line bg-surface/60">
+              <motion.section key={stage.key} {...rise(si + 3, 14)} className="glass flex flex-col rounded-2xl border">
                 <div className="px-4 pt-4 pb-3">
                   <div className="flex items-center gap-2">
                     <span className={`h-2 w-2 rounded-full ${TONE[stage.tone].dot}`} />
@@ -160,17 +169,18 @@ export function IdeasRoadmapView({
                       ยังไม่มีรายการ
                     </div>
                   ) : (
-                    items.map((issue) => {
+                    items.map((issue, i) => {
                       const subtasksTotal = issue.subtasks?.length || 0;
                       const subtasksDone = (issue.subtasks || []).filter((s) => s.completed).length;
                       return (
-                        <div
+                        <motion.div
                           key={issue.code}
+                          {...rise(si + i)}
                           role="button"
                           tabIndex={0}
                           onClick={() => onSelectIssue(issue)}
                           onKeyDown={(e) => e.key === "Enter" && onSelectIssue(issue)}
-                          className="flex cursor-pointer gap-2.5 rounded-xl border border-line bg-raised/60 p-3 transition hover:border-line-strong hover:bg-raised"
+                          className="flex cursor-pointer gap-2.5 rounded-xl border border-line bg-raised/50 p-3 lift hover:bg-raised/80"
                         >
                           <VoteButton item={issue} onUpvote={onUpvote} size="sm" />
                           <div className="min-w-0 flex-1">
@@ -188,12 +198,12 @@ export function IdeasRoadmapView({
                               )}
                             </div>
                           </div>
-                        </div>
+                        </motion.div>
                       );
                     })
                   )}
                 </div>
-              </section>
+              </motion.section>
             );
           })}
         </div>

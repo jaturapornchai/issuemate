@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans_Thai } from "next/font/google";
 import "./globals.css";
+import { MotionRoot } from "@/components/ui/Motion";
 
 const plexSansThai = IBM_Plex_Sans_Thai({
   subsets: ["thai", "latin"],
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#07090e",
+  themeColor: "#06071a",
   colorScheme: "dark",
 };
 
@@ -65,7 +66,9 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="bg-canvas font-sans text-fg antialiased">{children}</body>
+      <body className="bg-canvas font-sans text-fg antialiased">
+        <MotionRoot>{children}</MotionRoot>
+      </body>
     </html>
   );
 }

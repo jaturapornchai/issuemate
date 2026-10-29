@@ -3,6 +3,7 @@
 import React from "react";
 import { Paperclip, MessageSquare, ThumbsUp, ArrowRight, ListChecks, Server } from "lucide-react";
 import type { IssueRecord, IssueStatus } from "@/lib/types";
+import { GrowBar, motion, rise } from "./ui/Motion";
 import {
   PriorityBadge,
   TypeBadge,
@@ -40,20 +41,21 @@ export function KanbanBoardView({
 }) {
   return (
     <div data-testid="kanban-board-view" className="flex h-full gap-3 overflow-x-auto p-4 sm:p-5">
-      {COLUMNS.map((col) => {
+      {COLUMNS.map((col, ci) => {
         const cfg = STATUS_CONFIG[col.status];
         const tone = TONE[cfg.tone];
         const colIssues = issues.filter((i) => i.status === col.status);
 
         return (
-          <section
+          <motion.section
             key={col.status}
+            {...rise(ci, 14)}
             aria-label={cfg.label}
-            className="flex h-full w-[284px] shrink-0 flex-col rounded-2xl border border-line bg-surface/60"
+            className="glass flex h-full w-[284px] shrink-0 flex-col rounded-2xl border"
           >
             {/* Column header */}
             <div className="flex items-center gap-2 px-3.5 pt-3.5 pb-2.5">
-              <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
+              <span className={`h-2 w-2 rounded-full shadow-[0_0_8px_currentColor] ${tone.dot}`} />
               <h3 className="truncate text-[13px] font-semibold text-fg">{cfg.label}</h3>
               <span className="count">{colIssues.length}</span>
             </div>
@@ -68,18 +70,19 @@ export function KanbanBoardView({
                   ไม่มีรายการในขั้นตอนนี้
                 </div>
               ) : (
-                colIssues.map((issue) => {
+                colIssues.map((issue, i) => {
                   const subtasks = issue.subtasks || [];
                   const doneCount = subtasks.filter((s) => s.completed).length;
 
                   return (
-                    <div
+                    <motion.div
                       key={issue.code}
+                      {...rise(ci + i)}
                       role="button"
                       tabIndex={0}
                       onClick={() => onSelectIssue(issue)}
                       onKeyDown={(e) => e.key === "Enter" && onSelectIssue(issue)}
-                      className="group cursor-pointer rounded-xl border border-line bg-raised/60 p-3 shadow-[0_1px_0_rgb(255_255_255/0.03)_inset] transition hover:border-line-strong hover:bg-raised"
+                      className="lift group cursor-pointer rounded-xl border border-line bg-raised/50 p-3 shadow-[0_1px_0_rgb(255_255_255/0.04)_inset] hover:bg-raised/80"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-[11px] text-fg-subtle">{issue.code}</span>
@@ -119,9 +122,9 @@ export function KanbanBoardView({
                         <div className="mt-2.5 flex items-center gap-2 text-[11px] text-fg-subtle">
                           <ListChecks className="h-3 w-3 shrink-0" />
                           <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
-                            <div
-                              className="h-full rounded-full bg-emerald-400"
-                              style={{ width: `${(doneCount / subtasks.length) * 100}%` }}
+                            <GrowBar
+                              pct={(doneCount / subtasks.length) * 100}
+                              className="bg-gradient-to-r from-brand-400 to-cyan-300"
                             />
                           </div>
                           <span className="tabular-nums">
@@ -170,12 +173,12 @@ export function KanbanBoardView({
                           <ArrowRight className="h-3 w-3" />
                         </button>
                       )}
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
             </div>
-          </section>
+          </motion.section>
         );
       })}
     </div>

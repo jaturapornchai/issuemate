@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { motion, SPRING } from "./ui/Motion";
 import {
   Search,
   Plus,
@@ -82,7 +83,7 @@ export function CommandPaletteModal({
 
     const actions: PaletteItem[] = [
       ...(canCreateIssue
-        ? [{ id: "new-issue", group: "คำสั่งด่วน", label: "แจ้งปัญหาใหม่", hint: "พิมพ์หรือพูดเล่าปัญหา แนบรูปได้", icon: Plus, iconClass: "text-emerald-400", run: close(onOpenCreateIssue) }]
+        ? [{ id: "new-issue", group: "คำสั่งด่วน", label: "แจ้งปัญหาใหม่", hint: "พิมพ์หรือพูดเล่าปัญหา แนบรูปได้", icon: Plus, iconClass: "text-brand-300", run: close(onOpenCreateIssue) }]
         : []),
       ...(canAskQuestion && onOpenAskQuestion
         ? [{ id: "ask", group: "คำสั่งด่วน", label: "ถามคำถามการใช้งาน", hint: "ขอคู่มือ หรือสอบถามวิธีใช้", icon: MessageCircleQuestion, iconClass: "text-sky-300", run: close(onOpenAskQuestion) }]
@@ -192,7 +193,7 @@ export function CommandPaletteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center bg-black/70 px-4 pt-[12vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center bg-[rgb(3_4_16/0.7)] px-4 pt-[12vh] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -201,7 +202,7 @@ export function CommandPaletteModal({
         aria-modal="true"
         aria-label="ค้นหาด่วน"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl animate-scale-in overflow-hidden rounded-2xl border border-line bg-overlay shadow-pop"
+        className="relative w-full max-w-xl animate-scale-in overflow-hidden rounded-2xl border border-line-strong bg-overlay/90 shadow-pop backdrop-blur-2xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-brand-400/70 before:to-transparent"
       >
         <div className="flex items-center gap-3 border-b border-line px-4">
           <Search className="h-4 w-4 shrink-0 text-fg-subtle" />
@@ -239,10 +240,17 @@ export function CommandPaletteModal({
                     data-index={index}
                     onMouseMove={() => setActiveIndex(index)}
                     onClick={item.run}
-                    className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors ${
-                      active ? "bg-white/[0.07] text-fg" : "text-fg-muted"
+                    className={`relative isolate flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors ${
+                      active ? "text-fg" : "text-fg-muted"
                     }`}
                   >
+                    {active && (
+                      <motion.span
+                        layoutId="palette-active"
+                        transition={SPRING}
+                        className="absolute inset-0 -z-10 rounded-lg bg-brand-400/[0.12] shadow-[inset_0_0_0_1px_rgb(167_139_250/0.25)]"
+                      />
+                    )}
                     {item.issue ? (
                       <>
                         <span className="w-24 shrink-0 truncate font-mono text-xs text-fg-subtle">{item.issue.code}</span>

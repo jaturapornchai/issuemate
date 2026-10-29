@@ -18,6 +18,7 @@ import {
   ListChecks,
 } from "lucide-react";
 import type { IssueRecord } from "@/lib/types";
+import { motion, rise } from "./ui/Motion";
 import {
   useResizableColumns,
   ColumnResizeHandle,
@@ -264,7 +265,7 @@ export function IssuesTableView({
               <col key={c.key} style={getColStyle(c.key)} />
             ))}
           </colgroup>
-          <thead className="sticky top-0 z-10 bg-canvas/90 backdrop-blur-md">
+          <thead className="sticky top-0 z-10 bg-canvas/75 backdrop-blur-xl">
             <tr className="border-b border-line">
               {COLUMNS.map((c, idx) => {
                 const isSorted = sortBy === c.sortField;
@@ -289,7 +290,7 @@ export function IssuesTableView({
                       <span className="truncate">{c.label}</span>
                       <SortIcon
                         className={`h-3 w-3 shrink-0 transition ${
-                          isSorted ? "text-emerald-400" : "opacity-0 group-hover/th:opacity-70"
+                          isSorted ? "text-brand-400" : "opacity-0 group-hover/th:opacity-70"
                         }`}
                       />
                     </div>
@@ -328,16 +329,17 @@ export function IssuesTableView({
               </tr>
             )}
 
-            {issues.map((issue) => {
+            {issues.map((issue, i) => {
               const isSelected = selectedCode === issue.code;
               return (
-                <tr
+                <motion.tr
                   key={issue.code}
+                  {...rise(i, 6)}
                   data-testid={`issue-row-${issue.code}`}
                   onClick={() => onSelectIssue(issue)}
                   className={`group cursor-pointer border-b border-line transition-colors ${
                     isSelected
-                      ? "bg-emerald-400/[0.06] shadow-[inset_2px_0_0_0_rgb(52_211_153)]"
+                      ? "bg-brand-400/[0.06] shadow-[inset_2px_0_0_0_rgb(167_139_250)]"
                       : "hover:bg-white/[0.025]"
                   }`}
                 >
@@ -404,7 +406,7 @@ export function IssuesTableView({
                       <span className="text-xs text-fg-subtle tabular-nums">{issue.upvotes || 0}</span>
                     )}
                   </td>
-                </tr>
+                </motion.tr>
               );
             })}
           </tbody>
@@ -428,16 +430,17 @@ export function IssuesTableView({
           <EmptyState filtered={hasActiveFilters} onResetFilters={onResetFilters} onCreate={onCreate} />
         )}
         <div className="space-y-2 p-3">
-          {issues.map((issue) => (
-            <div
+          {issues.map((issue, i) => (
+            <motion.div
               key={issue.code}
+              {...rise(i)}
               role="button"
               tabIndex={0}
               data-testid={`issue-card-${issue.code}`}
               onClick={() => onSelectIssue(issue)}
               onKeyDown={(e) => e.key === "Enter" && onSelectIssue(issue)}
-              className={`card cursor-pointer p-4 transition active:scale-[0.99] ${
-                selectedCode === issue.code ? "border-emerald-400/40" : ""
+              className={`card cursor-pointer p-4 transition-[border-color,background-color,scale] active:scale-[0.99] ${
+                selectedCode === issue.code ? "border-brand-400/40 bg-brand-400/[0.06]" : ""
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -471,7 +474,7 @@ export function IssuesTableView({
                   </span>
                 </span>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
       </div>

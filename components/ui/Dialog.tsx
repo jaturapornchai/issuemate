@@ -33,7 +33,7 @@ export function Dialog({
 }) {
   return (
     <div
-      className={`fixed inset-0 z-50 flex animate-fade-in justify-center bg-black/70 backdrop-blur-sm sm:p-6 ${
+      className={`fixed inset-0 z-50 flex animate-fade-in justify-center bg-[rgb(3_4_16/0.7)] backdrop-blur-sm sm:p-6 ${
         placement === "top" ? "items-start pt-[10vh]" : "items-end sm:items-center"
       }`}
       onClick={onClose}
@@ -44,8 +44,10 @@ export function Dialog({
         aria-labelledby={labelledBy}
         data-testid={testId}
         onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[94dvh] w-full animate-scale-in flex-col overflow-hidden border border-line bg-overlay shadow-pop sm:max-h-[90vh] ${
-          placement === "top" ? "mx-4 rounded-2xl" : "rounded-t-2xl sm:rounded-2xl"
+        className={`relative flex max-h-[94dvh] w-full flex-col overflow-hidden border border-line-strong bg-overlay/95 shadow-pop backdrop-blur-2xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-brand-400/70 before:to-transparent sm:max-h-[90vh] ${
+          placement === "top"
+            ? "mx-4 animate-scale-in rounded-2xl"
+            : "animate-sheet-in rounded-t-2xl sm:animate-scale-in sm:rounded-2xl"
         } ${SIZE_CLASS[size]} ${className}`}
       >
         {children}
@@ -74,7 +76,7 @@ export function DialogHeader({
   return (
     <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-4 sm:px-6">
       {icon && (
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line bg-white/[0.04]">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-400/25 bg-gradient-to-br from-brand-500/20 to-cyan-400/10">
           {icon}
         </div>
       )}
@@ -124,7 +126,7 @@ export function SectionHeading({
     <div className="mb-2.5 flex items-end justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         {step !== undefined && (
-          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/15 text-[11px] font-semibold text-emerald-300 ring-1 ring-emerald-400/30">
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-400/15 text-[11px] font-semibold text-brand-300 ring-1 ring-brand-400/30">
             {step}
           </span>
         )}

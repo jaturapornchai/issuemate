@@ -206,8 +206,8 @@ export function ColumnResizeHandle({
       onClick={(e) => e.stopPropagation()}
       className={`absolute top-2 right-0 bottom-2 w-1 cursor-col-resize rounded-full select-none transition-colors ${
         isActive
-          ? "bg-emerald-400"
-          : "bg-transparent group-hover/th:bg-white/15 hover:!bg-emerald-400"
+          ? "bg-brand-400"
+          : "bg-transparent group-hover/th:bg-white/15 hover:!bg-brand-400"
       }`}
       title="ลากเพื่อปรับความกว้างคอลัมน์ / ดับเบิลคลิกเพื่อรีเซ็ต"
     />

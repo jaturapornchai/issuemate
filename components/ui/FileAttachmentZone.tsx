@@ -276,7 +276,7 @@ export function FileUploadZone({
           data-testid="multi-file-dropzone"
           {...dropHandlers}
           className={`flex flex-wrap items-center gap-2 rounded-xl border border-dashed px-2.5 py-2 transition focus:outline-none ${
-            isDragging ? "border-emerald-400/60 bg-emerald-400/[0.06]" : "border-line hover:border-line-strong"
+            isDragging ? "border-brand-400/60 bg-brand-400/[0.06]" : "border-line hover:border-line-strong"
           }`}
         >
           {hiddenInputs}
@@ -301,7 +301,7 @@ export function FileUploadZone({
           <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-subtle">
             {isUploading ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-400" />
                 กำลังอัปโหลด {uploadingCount} ไฟล์…
               </>
             ) : (
@@ -316,7 +316,7 @@ export function FileUploadZone({
           {...dropHandlers}
           className={`rounded-2xl border border-dashed p-5 text-center transition focus:outline-none ${
             isDragging
-              ? "border-emerald-400/60 bg-emerald-400/[0.06]"
+              ? "border-brand-400/60 bg-brand-400/[0.06]"
               : "border-line-strong bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.03]"
           }`}
         >
@@ -326,7 +326,7 @@ export function FileUploadZone({
             className="mx-auto mb-3 flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-line bg-white/[0.04] text-fg-muted"
           >
             {isUploading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-emerald-400" />
+              <Loader2 className="h-5 w-5 animate-spin text-brand-400" />
             ) : (
               <UploadCloud className="h-5 w-5" />
             )}

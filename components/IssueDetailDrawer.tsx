@@ -56,6 +56,7 @@ import {
 import { aiApprovalDisplayState } from "@/lib/ai-approval";
 import { FileUploadZone, AttachmentGallery } from "./ui/FileAttachmentZone";
 import { Notice } from "./ui/Dialog";
+import { EASE_OUT, motion } from "./ui/Motion";
 import { type ProjectPermissionLevel } from "@/lib/permissions";
 import {
   buildGitBranchCommand,
@@ -404,13 +405,23 @@ export function IssueDetailDrawer({
 
   return (
     <div data-testid="issue-detail-drawer" className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 animate-fade-in bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
+      <motion.div
+        className="absolute inset-0 bg-[rgb(3_4_16/0.6)] backdrop-blur-[3px]"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.2 } }}
+      />
 
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-label={`${issue.code} ${issue.title}`}
-        className="relative flex h-full w-full max-w-[940px] animate-slide-in-right flex-col border-l border-line bg-overlay shadow-pop"
+        initial={{ x: 72, opacity: 0.3 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 96, opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }}
+        transition={{ duration: 0.34, ease: EASE_OUT }}
+        className="relative flex h-full w-full max-w-[940px] flex-col border-l border-line-strong bg-overlay/95 shadow-pop backdrop-blur-2xl"
       >
         {/* Header */}
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4 sm:px-6">
@@ -582,7 +593,7 @@ export function IssueDetailDrawer({
                           <span
                             aria-hidden="true"
                             className={`absolute top-3.5 left-1/2 h-0.5 w-full ${
-                              done ? "bg-emerald-400/70" : "bg-white/[0.08]"
+                              done ? "bg-brand-400/70" : "bg-white/[0.08]"
                             }`}
                           />
                         )}
@@ -603,7 +614,7 @@ export function IssueDetailDrawer({
                           <span
                             className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold transition ${
                               done
-                                ? "bg-emerald-400 text-emerald-950"
+                                ? "bg-brand-400 text-brand-950"
                                 : current
                                   ? `bg-overlay ring-2 ${TONE[cfg.tone].text} ring-current`
                                   : "bg-raised text-fg-subtle ring-1 ring-line group-hover:ring-line-strong"
@@ -1110,7 +1121,7 @@ export function IssueDetailDrawer({
                   <form
                     onSubmit={(e) => handleSendComment(e)}
                     data-testid="reply-answer-form"
-                    className="rounded-2xl border border-line bg-white/[0.02] transition focus-within:border-emerald-400/40 focus-within:ring-4 focus-within:ring-emerald-400/10"
+                    className="rounded-2xl border border-line bg-white/[0.02] transition focus-within:border-brand-400/40 focus-within:ring-4 focus-within:ring-brand-400/10"
                   >
                     <textarea
                       rows={3}
@@ -1304,7 +1315,7 @@ export function IssueDetailDrawer({
                   </div>
                   <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
                     <div
-                      className="h-full rounded-full bg-emerald-400"
+                      className="h-full rounded-full bg-brand-400"
                       style={{ width: `${(subtasksDone / subtasks.length) * 100}%` }}
                     />
                   </div>
@@ -1383,7 +1394,7 @@ export function IssueDetailDrawer({
             </aside>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

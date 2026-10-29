@@ -840,10 +840,14 @@ export function GoogleLoginModal({
 
   if (variant === "page") {
     return (
-      <div className="relative flex min-h-dvh w-full justify-center overflow-y-auto bg-canvas px-4 py-10 sm:items-center">
+      <div className="relative flex min-h-dvh w-full justify-center overflow-y-auto px-4 py-10 sm:items-center">
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed -top-48 left-1/2 h-[560px] w-[900px] -translate-x-1/2 rounded-full bg-emerald-500/[0.09] blur-3xl"
+          className="pointer-events-none fixed -top-48 left-1/2 h-[560px] w-[900px] -translate-x-1/2 animate-pulse rounded-full bg-brand-500/[0.12] blur-3xl [animation-duration:6s]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed -right-40 -bottom-40 h-[420px] w-[620px] rounded-full bg-cyan-400/[0.07] blur-3xl"
         />
         <div
           aria-hidden="true"
@@ -885,7 +889,7 @@ export function GoogleLoginModal({
                   { icon: Activity, text: "ติดตามสถานะได้ตลอด ตั้งแต่รับเรื่องจนแก้เสร็จ" },
                 ].map(({ icon: Icon, text }) => (
                   <li key={text} className="flex items-center gap-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-400/10 text-brand-300">
                       <Icon className="h-3.5 w-3.5" />
                     </span>
                     {text}
@@ -978,7 +982,7 @@ export function GoogleLoginModal({
               >
                 <Icon className="h-4 w-4" />
                 {t.label}
-                {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-emerald-400" />}
+                {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-400" />}
               </button>
             );
           })}
@@ -1143,7 +1147,7 @@ export function GoogleLoginModal({
                                 aria-pressed={selectedMemberProjects.includes("ALL")}
                                 className={`pill cursor-pointer transition ${
                                   selectedMemberProjects.includes("ALL")
-                                    ? "bg-emerald-400/15 text-emerald-100 ring-emerald-400/40"
+                                    ? "bg-brand-400/15 text-brand-100 ring-brand-400/40"
                                     : "bg-white/[0.03] text-fg-muted ring-line hover:ring-line-strong"
                                 }`}
                               >
@@ -1166,7 +1170,7 @@ export function GoogleLoginModal({
                                     aria-pressed={isChecked}
                                     className={`pill cursor-pointer transition ${
                                       isChecked
-                                        ? "bg-emerald-400/15 text-emerald-100 ring-emerald-400/40"
+                                        ? "bg-brand-400/15 text-brand-100 ring-brand-400/40"
                                         : "bg-white/[0.03] text-fg-muted ring-line hover:ring-line-strong"
                                     }`}
                                   >
@@ -1234,7 +1238,7 @@ export function GoogleLoginModal({
                           key={`${u.email}-${idx}`}
                           data-testid={`allowed-user-row-${u.email}`}
                           className={`rounded-xl border px-3.5 py-3 ${
-                            isCurrent ? "border-emerald-400/25 bg-emerald-400/[0.04]" : "border-line bg-white/[0.015]"
+                            isCurrent ? "border-brand-400/25 bg-brand-400/[0.04]" : "border-line bg-white/[0.015]"
                           }`}
                         >
                           <div className="flex flex-wrap items-center gap-3">
@@ -1251,7 +1255,7 @@ export function GoogleLoginModal({
                                     Admin
                                   </span>
                                 ) : null}
-                                {isCurrent && <span className="text-[11px] text-emerald-300">(คุณ)</span>}
+                                {isCurrent && <span className="text-[11px] text-brand-300">(คุณ)</span>}
                               </div>
                               <p className="truncate font-mono text-xs text-fg-subtle">{u.email}</p>
                             </div>
@@ -1324,7 +1328,7 @@ export function GoogleLoginModal({
                                       onClick={() => handleToggleExistingUserProject(u, "ALL")}
                                       className={`pill h-6 cursor-pointer ${
                                         userProjs.includes("ALL")
-                                          ? "bg-emerald-400/15 text-emerald-100 ring-emerald-400/40"
+                                          ? "bg-brand-400/15 text-brand-100 ring-brand-400/40"
                                           : "bg-white/[0.03] text-fg-muted ring-line hover:ring-line-strong"
                                       }`}
                                       title="ให้สิทธิ์ทุกโปรเจกต์"
@@ -1341,7 +1345,7 @@ export function GoogleLoginModal({
                                           onClick={() => handleToggleExistingUserProject(u, p.key)}
                                           className={`pill h-6 cursor-pointer font-mono ${
                                             active
-                                              ? "bg-emerald-400/15 text-emerald-100 ring-emerald-400/40"
+                                              ? "bg-brand-400/15 text-brand-100 ring-brand-400/40"
                                               : "bg-white/[0.03] text-fg-muted ring-line hover:ring-line-strong"
                                           }`}
                                           title={`เปิด/ปิดสิทธิ์โปรเจกต์ ${p.key}`}

@@ -37,6 +37,7 @@ import {
   formatThaiDateTime,
   type Tone,
 } from "./ui/Badges";
+import { CountUp, GrowBar, motion, rise } from "./ui/Motion";
 
 export interface MonitorDrillDown {
   status?: IssueStatusFilter;
@@ -75,6 +76,7 @@ function StatTile({
   valueTestId,
   subTestId,
   children,
+  i = 0,
 }: {
   label: string;
   value: React.ReactNode;
@@ -85,12 +87,14 @@ function StatTile({
   valueTestId?: string;
   subTestId?: string;
   children?: React.ReactNode;
+  i?: number;
 }) {
   return (
-    <button
+    <motion.button
+      {...rise(i)}
       type="button"
       onClick={onClick}
-      className="card group flex cursor-pointer flex-col p-4 text-left transition hover:border-line-strong hover:bg-raised/60 sm:p-5"
+      className="card lift group flex cursor-pointer flex-col p-4 text-left hover:bg-raised/60 sm:p-5"
     >
       <div className="flex items-center justify-between">
         <span className="text-[13px] text-fg-muted">{label}</span>
@@ -107,7 +111,7 @@ function StatTile({
           {sub}
         </p>
       )}
-    </button>
+    </motion.button>
   );
 }
 
@@ -204,7 +208,7 @@ export function MonitorDashboardView({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-semibold tracking-tight text-fg">ภาพรวมความคืบหน้า</h2>
+              <h2 className="text-gradient text-lg font-semibold tracking-tight">ภาพรวมความคืบหน้า</h2>
               <span className="pill bg-emerald-400/10 text-emerald-200 ring-emerald-400/25">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -236,7 +240,7 @@ export function MonitorDashboardView({
               data-testid="monitor-refresh-btn"
               className="btn btn-secondary btn-sm"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin text-emerald-400" : ""}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin text-brand-400" : ""}`} />
               <span>รีเฟรช</span>
             </button>
           </div>
@@ -246,7 +250,7 @@ export function MonitorDashboardView({
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatTile
             label="เรื่องทั้งหมด"
-            value={stats.totalIssues}
+            value={<CountUp value={stats.totalIssues} />}
             icon={Layers}
             onClick={() => onDrillDown?.({ status: "all", priority: "all", type: "all" })}
             valueTestId="kpi-total"
@@ -255,31 +259,37 @@ export function MonitorDashboardView({
           />
           <StatTile
             label="ยังไม่ปิด"
-            value={unresolved}
+            value={<CountUp value={unresolved} />}
             icon={Inbox}
             tone="amber"
+            i={1}
             onClick={() => onDrillDown?.({ status: "active", priority: "all", type: "all" })}
             sub={`รอตรวจสอบ ${pendingReviewTotal} · อยู่ระหว่างแก้ไข ${stats.readyToFixIssues + stats.fixingIssues}`}
           />
           <StatTile
             label="อัตราจบงาน"
-            value={`${stats.resolutionRatePct}%`}
+            value={
+              <CountUp
+                value={stats.resolutionRatePct}
+                decimals={Number.isInteger(stats.resolutionRatePct) ? 0 : 1}
+                suffix="%"
+              />
+            }
             icon={Target}
             tone="emerald"
+            i={2}
             onClick={() => onDrillDown?.({ status: "deployed", priority: "all", type: "all" })}
             sub={`เสร็จแล้ว ${stats.deployedIssues} · ไม่แก้ไข ${stats.wontFixIssues}`}
           >
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300"
-                style={{ width: `${Math.min(100, stats.resolutionRatePct)}%` }}
-              />
+              <GrowBar pct={stats.resolutionRatePct} delay={0.15} className="bg-gradient-to-r from-emerald-500 to-emerald-300" />
             </div>
           </StatTile>
           <StatTile
             label="ด่วนที่สุดที่ยังค้าง"
-            value={stats.criticalOpenCount}
+            value={<CountUp value={stats.criticalOpenCount} />}
             icon={Flame}
+            i={3}
             tone={stats.criticalOpenCount > 0 ? "red" : "zinc"}
             onClick={() => onDrillDown?.({ status: "active", priority: "critical", type: "all" })}
             sub={
@@ -312,11 +322,12 @@ export function MonitorDashboardView({
           />
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {pipeline.map((stage, idx) => (
-              <button
+              <motion.button
                 key={stage.key}
+                {...rise(idx + 4)}
                 type="button"
                 onClick={() => onDrillDown?.({ status: stage.key, priority: "all", type: "all" })}
-                className="group relative cursor-pointer rounded-xl border border-line bg-white/[0.02] p-4 text-left transition hover:border-line-strong hover:bg-white/[0.04]"
+                className="group relative cursor-pointer rounded-xl border border-line bg-white/[0.02] p-4 text-left lift hover:bg-white/[0.04]"
               >
                 <div className="flex items-center gap-2">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.06] text-[11px] font-semibold text-fg-muted">
@@ -326,13 +337,13 @@ export function MonitorDashboardView({
                   <span className={`ml-auto h-2 w-2 rounded-full ${TONE[stage.tone].dot}`} />
                 </div>
                 <p data-testid={stage.testId} className={`mt-3 text-2xl font-semibold tabular-nums ${TONE[stage.tone].text}`}>
-                  {stage.value}
+                  <CountUp value={stage.value} />
                 </p>
                 <p className="mt-1 text-xs text-fg-subtle">{stage.hint}</p>
                 {idx < pipeline.length - 1 && (
                   <ChevronRight className="absolute top-1/2 -right-[13px] z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full border border-line bg-surface p-0.5 text-fg-subtle lg:block" />
                 )}
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
@@ -392,13 +403,18 @@ export function MonitorDashboardView({
                         </span>
                       </div>
                     </div>
-                    <div className="mt-2.5 flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-white/[0.05]">
+                    <motion.div
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: 1 }}
+                      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                      className="mt-2.5 flex h-2 w-full origin-left gap-0.5 overflow-hidden rounded-full bg-white/[0.05]"
+                    >
                       <div style={{ width: seg(p.deployed) }} className="bg-emerald-400" title={`เสร็จแล้ว ${p.deployed}`} />
                       <div style={{ width: seg(p.fixing) }} className="bg-blue-400" title={`กำลังแก้ไข ${p.fixing}`} />
                       <div style={{ width: seg(p.readyToFix) }} className="bg-sky-400" title={`รอแก้ไข ${p.readyToFix}`} />
                       <div style={{ width: seg(p.open + p.reviewing) }} className="bg-amber-400" title={`รอตรวจสอบ ${p.open + p.reviewing}`} />
                       <div style={{ width: seg(p.wontFix) }} className="bg-zinc-500" title={`ไม่แก้ไข ${p.wontFix}`} />
-                    </div>
+                    </motion.div>
                   </button>
                 );
               })}
@@ -425,10 +441,7 @@ export function MonitorDashboardView({
                       <span className="text-[13px] font-semibold text-fg tabular-nums">{count}</span>
                     </div>
                     <div className="mt-1.5 ml-[26px] h-1 overflow-hidden rounded-full bg-white/[0.05]">
-                      <div
-                        className={`h-full rounded-full ${TONE[cfg.tone].dot} opacity-80`}
-                        style={{ width: `${(count / maxTypeCount) * 100}%` }}
-                      />
+                      <GrowBar pct={(count / maxTypeCount) * 100} className={`${TONE[cfg.tone].dot} opacity-80`} />
                     </div>
                   </button>
                 );

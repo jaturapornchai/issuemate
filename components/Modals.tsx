@@ -106,7 +106,7 @@ export function CreateProjectModal({
     <Dialog onClose={onClose} size="sm" testId="create-project-modal" labelledBy="create-project-title">
       <DialogHeader
         titleId="create-project-title"
-        icon={<FolderPlus className="h-4 w-4 text-emerald-300" />}
+        icon={<FolderPlus className="h-4 w-4 text-brand-300" />}
         title="สร้างโปรเจกต์ใหม่"
         subtitle="แยกเรื่องของแต่ละระบบงานออกจากกัน เช่น ระบบบัญชี, POS"
         onClose={onClose}
@@ -536,7 +536,7 @@ export function CreateIssueModal({
           isQuestion ? (
             <MessageCircleQuestion className="h-4 w-4 text-sky-300" />
           ) : (
-            <Plus className="h-4 w-4 text-emerald-300" strokeWidth={2.5} />
+            <Plus className="h-4 w-4 text-brand-300" strokeWidth={2.5} />
           )
         }
         title={isQuestion ? "ถามคำถามใหม่" : "แจ้งปัญหา / เรื่องใหม่"}
@@ -559,7 +559,7 @@ export function CreateIssueModal({
             className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-white/[0.02] px-3.5 py-3"
           >
             <span className="inline-flex items-center gap-1.5 text-xs text-fg-subtle">
-              <BookmarkCheck className="h-3.5 w-3.5 text-emerald-400" />
+              <BookmarkCheck className="h-3.5 w-3.5 text-brand-400" />
               ส่งเข้าโปรเจกต์
             </span>
             <div className="relative min-w-0 flex-1 sm:max-w-[320px]">
@@ -633,7 +633,7 @@ export function CreateIssueModal({
                     onClick={() => !disabled && setType(t)}
                     className={`${spanClass} flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-35 ${
                       isSelected
-                        ? "border-emerald-400/50 bg-emerald-400/[0.07] ring-1 ring-emerald-400/30 ring-inset"
+                        ? "border-brand-400/50 bg-brand-400/[0.07] ring-1 ring-brand-400/30 ring-inset"
                         : "border-line bg-white/[0.02] hover:border-line-strong hover:bg-white/[0.04]"
                     }`}
                   >
@@ -688,8 +688,8 @@ export function CreateIssueModal({
             />
 
             <div
-              className={`rounded-2xl border bg-black/20 transition focus-within:ring-4 focus-within:ring-emerald-400/10 ${
-                isListening ? "border-rose-400/50" : "border-line focus-within:border-emerald-400/50"
+              className={`rounded-2xl border bg-black/20 transition focus-within:ring-4 focus-within:ring-brand-400/10 ${
+                isListening ? "border-rose-400/50" : "border-line focus-within:border-brand-400/50"
               }`}
             >
               <textarea
@@ -756,7 +756,7 @@ export function CreateIssueModal({
               data-testid="auto-env-capture-indicator"
               className="mt-2 inline-flex items-center gap-1.5 text-xs text-fg-subtle"
             >
-              <Smartphone className="h-3.5 w-3.5 text-emerald-400/80" />
+              <Smartphone className="h-3.5 w-3.5 text-brand-400/80" />
               ระบบแนบข้อมูลอุปกรณ์และเบราว์เซอร์ให้ทีมพัฒนาอัตโนมัติ ไม่ต้องกรอกเอง
             </p>
 
@@ -1513,7 +1513,7 @@ export function AiMcpGuideModal({
             <div className="card-inset overflow-hidden">
               <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
                 <span className="text-xs font-medium text-fg">
-                  แบบที่ 1 · HTTP + Header <span className="font-normal text-emerald-300">(แนะนำ)</span>
+                  แบบที่ 1 · HTTP + Header <span className="font-normal text-brand-300">(แนะนำ)</span>
                 </span>
                 <CopyButton copied={copiedKey === "http"} onClick={() => copyText("http", mcpHttpConfig)} variant="ghost" />
               </div>

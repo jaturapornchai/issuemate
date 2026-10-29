@@ -67,6 +67,7 @@ import {
 } from "@/components/Modals";
 import { APP_VERSION, DEPLOYED_AT_TH } from "@/lib/version";
 import { LogoMark } from "@/components/ui/Logo";
+import { AnimatePresence, ViewSwitch, motion, SPRING } from "@/components/ui/Motion";
 
 type ProjectWithCounts = ProjectRecord & { openCount: number; totalCount: number };
 type ViewMode = "monitor" | "table" | "kanban" | "roadmap";
@@ -764,10 +765,15 @@ export default function IssueMateAppPage() {
 
   if (!authChecked) {
     return (
-      <div className="flex h-dvh w-full flex-col items-center justify-center gap-4 bg-canvas">
-        <LogoMark className="h-12 w-12" />
+      <div className="flex h-dvh w-full flex-col items-center justify-center gap-4">
+        <motion.div
+          animate={{ scale: [1, 1.06, 1], opacity: [0.85, 1, 0.85] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <LogoMark className="h-12 w-12" />
+        </motion.div>
         <div className="flex items-center gap-2 text-sm text-fg-muted">
-          <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+          <Loader2 className="h-4 w-4 animate-spin text-brand-400" />
           กำลังโหลด IssueMate…
         </div>
       </div>
@@ -791,7 +797,7 @@ export default function IssueMateAppPage() {
 
   const sidebar = (
     <aside
-      className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col border-r border-line bg-surface transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-50 glass flex w-[272px] shrink-0 flex-col border-r transition-transform duration-300 ease-out lg:static lg:z-auto lg:translate-x-0 ${
         isMobileSidebarOpen ? "translate-x-0 shadow-pop" : "-translate-x-full"
       }`}
     >
@@ -799,7 +805,7 @@ export default function IssueMateAppPage() {
       <div className="flex h-16 shrink-0 items-center gap-3 px-4">
         <LogoMark />
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] leading-tight font-semibold tracking-tight text-fg">IssueMate</p>
+          <p className="text-gradient text-[15px] leading-tight font-semibold tracking-tight">IssueMate</p>
           <p className="truncate text-[11px] leading-tight text-fg-subtle">
             แจ้งปัญหา · สอบถาม · ติดตามงาน
           </p>
@@ -823,7 +829,7 @@ export default function IssueMateAppPage() {
             setIsMobileSidebarOpen(false);
             setIsCommandPaletteOpen(true);
           }}
-          className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-line bg-black/20 px-2.5 text-[13px] text-fg-subtle transition hover:border-line-strong hover:text-fg-muted"
+          className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-lg border border-line bg-[rgb(6_7_26/0.45)] px-2.5 text-[13px] text-fg-subtle transition hover:border-brand-400/40 hover:text-fg-muted"
         >
           <Search className="h-4 w-4" />
           <span className="flex-1 text-left">ค้นหาด่วน / คำสั่ง</span>
@@ -849,18 +855,25 @@ export default function IssueMateAppPage() {
                 setViewMode(v.key);
                 setIsMobileSidebarOpen(false);
               }}
-              className={`group flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition ${
-                active
-                  ? "bg-white/[0.07] text-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.05)]"
-                  : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+              className={`group relative flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors ${
+                active ? "text-fg" : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
               }`}
             >
+              {active && (
+                <motion.span
+                  layoutId="nav-active"
+                  transition={SPRING}
+                  className="absolute inset-0 rounded-lg bg-gradient-to-r from-brand-500/25 via-brand-500/10 to-transparent shadow-[inset_0_0_0_1px_rgb(167_139_250/0.25)]"
+                >
+                  <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-full bg-gradient-to-b from-brand-300 to-cyan-300" />
+                </motion.span>
+              )}
               <Icon
-                className={`h-4 w-4 shrink-0 transition ${
-                  active ? "text-emerald-400" : "text-fg-subtle group-hover:text-fg-muted"
+                className={`relative h-4 w-4 shrink-0 transition ${
+                  active ? "text-brand-300" : "text-fg-subtle group-hover:text-fg-muted"
                 }`}
               />
-              <span className="truncate">{v.label}</span>
+              <span className="relative truncate">{v.label}</span>
             </button>
           );
         })}
@@ -887,14 +900,14 @@ export default function IssueMateAppPage() {
         {rememberedSpecificProject && (
           <div
             data-testid="remembered-project-banner"
-            className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-emerald-400/15 bg-emerald-400/[0.06] px-2.5 py-2 text-xs"
+            className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-brand-400/15 bg-brand-400/[0.06] px-2.5 py-2 text-xs"
             title="ระบบจำโปรเจกต์ล่าสุดไว้ให้ เพื่อกันการแจ้งเรื่องผิดโปรเจกต์"
           >
             <span
               className="h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: rememberedSpecificProject.color }}
             />
-            <span className="min-w-0 flex-1 truncate text-emerald-100/90">
+            <span className="min-w-0 flex-1 truncate text-brand-100/90">
               เรื่องใหม่จะส่งเข้า{" "}
               <strong className="font-semibold text-white">{rememberedSpecificProject.key}</strong>
             </span>
@@ -903,7 +916,7 @@ export default function IssueMateAppPage() {
                 type="button"
                 data-testid="resume-last-project-btn"
                 onClick={() => selectProject(rememberedSpecificProject.key)}
-                className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 font-semibold text-emerald-300 hover:bg-emerald-400/15"
+                className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 font-semibold text-brand-300 hover:bg-brand-400/15"
               >
                 เปิด
                 <ChevronRight className="h-3 w-3" />
@@ -974,7 +987,7 @@ export default function IssueMateAppPage() {
                     <PermIcon className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />
                   </span>
                 )}
-                <span className={`count ${proj.openCount > 0 && isSelected ? "bg-emerald-400/15 text-emerald-200" : ""}`}>
+                <span className={`count ${proj.openCount > 0 && isSelected ? "bg-brand-400/15 text-brand-200" : ""}`}>
                   {proj.openCount}
                 </span>
               </button>
@@ -1042,7 +1055,7 @@ export default function IssueMateAppPage() {
   );
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-canvas text-fg">
+    <div className="flex h-dvh w-full overflow-hidden text-fg">
       {/* Mobile Sidebar Backdrop */}
       {isMobileSidebarOpen && (
         <div
@@ -1070,7 +1083,7 @@ export default function IssueMateAppPage() {
 
           {/* Breadcrumb: project switcher / current view */}
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <div className="relative inline-flex h-9 max-w-[14rem] min-w-0 items-center rounded-lg border border-transparent pr-7 pl-8 text-sm font-semibold text-fg transition hover:border-line hover:bg-white/[0.04] focus-within:border-emerald-400/50 sm:max-w-[20rem]">
+            <div className="relative inline-flex h-9 max-w-[14rem] min-w-0 items-center rounded-lg border border-transparent pr-7 pl-8 text-sm font-semibold text-fg transition hover:border-line hover:bg-white/[0.04] focus-within:border-brand-400/50 sm:max-w-[20rem]">
               <span
                 className="pointer-events-none absolute top-1/2 left-3 h-2.5 w-2.5 -translate-y-1/2 rounded-[4px]"
                 style={{ backgroundColor: currentProject?.color || "#6d7787" }}
@@ -1138,7 +1151,7 @@ export default function IssueMateAppPage() {
             title="รีเฟรชข้อมูล (ระบบอัปเดตให้อัตโนมัติทุก 8 วินาที)"
             aria-label="รีเฟรชข้อมูล"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin text-emerald-400" : ""}`} />
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin text-brand-400" : ""}`} />
           </button>
 
           {activeProjectPermission === "viewer" ? (
@@ -1227,15 +1240,20 @@ export default function IssueMateAppPage() {
                       data-testid={tab.testId}
                       title={tab.hint}
                       onClick={() => setStatusFilter(tab.key)}
-                      className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-[13px] whitespace-nowrap transition ${
-                        active
-                          ? "bg-white/[0.08] font-medium text-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.06)]"
-                          : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
+                      className={`relative inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-[13px] whitespace-nowrap transition-colors ${
+                        active ? "font-medium text-fg" : "text-fg-muted hover:bg-white/[0.04] hover:text-fg"
                       }`}
                     >
-                      {tab.tone && <span className={`h-2 w-2 rounded-full ${TONE[tab.tone].dot}`} />}
-                      <span>{tab.label}</span>
-                      <span className={`text-xs tabular-nums ${active ? "text-fg-muted" : "text-fg-subtle"}`}>
+                      {active && (
+                        <motion.span
+                          layoutId="status-tab-active"
+                          transition={SPRING}
+                          className="absolute inset-0 rounded-lg bg-white/[0.08] shadow-[inset_0_0_0_1px_rgb(167_139_250/0.3)]"
+                        />
+                      )}
+                      {tab.tone && <span className={`relative h-2 w-2 rounded-full ${TONE[tab.tone].dot}`} />}
+                      <span className="relative">{tab.label}</span>
+                      <span className={`relative text-xs tabular-nums ${active ? "text-fg-muted" : "text-fg-subtle"}`}>
                         {count}
                       </span>
                     </button>
@@ -1384,9 +1402,9 @@ export default function IssueMateAppPage() {
         {showFilterToolbar && activeFilters.length > 0 && (
           <div
             data-testid="active-filter-bar"
-            className="flex shrink-0 items-center gap-2 border-b border-line bg-emerald-400/[0.03] px-3 py-2 sm:px-5"
+            className="flex shrink-0 items-center gap-2 animate-fade-in border-b border-line bg-brand-400/[0.05] px-3 py-2 sm:px-5"
           >
-            <ListFilter className="h-4 w-4 shrink-0 text-emerald-400" />
+            <ListFilter className="h-4 w-4 shrink-0 text-brand-400" />
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
               {activeFilters.map((f) => (
                 <button
@@ -1419,6 +1437,7 @@ export default function IssueMateAppPage() {
 
         {/* Main Viewport */}
         <main className="min-h-0 flex-1 overflow-hidden">
+          <ViewSwitch viewKey={viewMode} className="h-full">
           {viewMode === "monitor" && (
             <MonitorDashboardView
               stats={monitorStats}
@@ -1469,16 +1488,23 @@ export default function IssueMateAppPage() {
               onOpenCreateIdea={canReportIssue ? () => openCreateModalWithType("feature") : undefined}
             />
           )}
+          </ViewSwitch>
         </main>
       </div>
 
       {/* Floating action feedback (toast) */}
+      <AnimatePresence>
       {actionFeedback && (
-        <div
+        <motion.div
+          key="toast"
           data-testid="global-action-feedback"
           role="status"
           aria-live="polite"
-          className={`fixed right-4 bottom-4 left-4 z-[80] flex animate-toast-in items-start gap-3 rounded-xl border bg-overlay/95 px-4 py-3 text-[13px] shadow-pop backdrop-blur sm:left-auto sm:w-[380px] ${
+          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.98, transition: { duration: 0.16 } }}
+          transition={SPRING}
+          className={`fixed right-4 bottom-4 left-4 z-[80] flex items-start gap-3 rounded-xl border bg-overlay/90 px-4 py-3 text-[13px] shadow-pop backdrop-blur-xl sm:left-auto sm:w-[380px] ${
             actionFeedback.type === "success" ? "border-emerald-400/25" : "border-rose-400/30"
           }`}
         >
@@ -1496,11 +1522,15 @@ export default function IssueMateAppPage() {
           >
             <X className="h-3.5 w-3.5" />
           </button>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
-      {/* Issue Detail Slide-over Drawer */}
+      {/* Issue Detail Slide-over Drawer (AnimatePresence keeps it mounted for the exit slide) */}
+      <AnimatePresence>
+      {selectedIssue && (
       <IssueDetailDrawer
+        key="issue-drawer"
         issue={selectedIssue}
         onClose={() => setSelectedIssue(null)}
         onUpdate={handleUpdateIssue}
@@ -1515,6 +1545,8 @@ export default function IssueMateAppPage() {
           visibleProjects.find((p) => p.key === selectedIssue?.projectKey)?.aiAutoApproval
         }
       />
+      )}
+      </AnimatePresence>
 
       {/* Command Palette (Ctrl+K) */}
       <CommandPaletteModal

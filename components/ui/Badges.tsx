@@ -405,7 +405,7 @@ export function CopyCodeButton({ code, className = "" }: { code: string; classNa
           // ignore
         }
       }}
-      className={`group/copy inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md font-mono text-xs leading-none font-medium tabular-nums transition focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:outline-none ${
+      className={`group/copy inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md font-mono text-xs leading-none font-medium tabular-nums transition focus-visible:ring-2 focus-visible:ring-brand-400/60 focus-visible:outline-none ${
         copied ? "text-emerald-300" : "text-fg-subtle hover:text-fg"
       } ${className}`}
     >
