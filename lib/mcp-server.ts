@@ -13,9 +13,11 @@ import {
   getMonitorStats,
   normalizeProjectKey,
   getProjectByKey,
+  assertValidWontFixCategory,
 } from "./issue-service";
 import { MAX_FILES_PER_REQUEST, uploadBufferToMinio } from "./minio";
-import type { AiFixApproval, AttachmentItem, IssueStatus, SubtaskItem } from "./types";
+import type { AiFixApproval, AttachmentItem, IssueStatus, SubtaskItem, WontFixCategory } from "./types";
+import { WONT_FIX_CATEGORIES } from "./types";
 import {
   AI_GATED_STATUSES,
   aiApprovalDisplayState,
@@ -32,6 +34,15 @@ import {
 } from "./auth";
 
 type IssueAction = "view" | "comment" | "change_status";
+
+const WontFixCategorySchema = z
+  .enum(Object.keys(WONT_FIX_CATEGORIES) as [WontFixCategory, ...WontFixCategory[]])
+  .optional()
+  .describe(
+    `หมวดเหตุผลที่ไม่แก้ไข — บังคับทุกครั้งที่ปิดเรื่องเป็น wont_fix: ${Object.entries(WONT_FIX_CATEGORIES)
+      .map(([k, v]) => `${k} = ${v}`)
+      .join(", ")}`
+  );
 
 function cleanIssueCode(raw: string): string {
   return raw.trim().replace(/^#/, "").toUpperCase();
@@ -214,7 +225,7 @@ export function createIssueMateMcpServer(
             : "กรุณาระบุ projectKey ทุกครั้งที่เรียก MCP Tool เพื่อป้องกันการทำรายการข้ามโปรเจกต์",
           pipelineWorkflow: [
             "1. แจ้งปัญหาใหม่ -> status = 'open' (รอ Antigravity ดึงไปรีวิว)",
-            "2. Antigravity วิเคราะห์สาเหตุ -> เรียก submit_claude_review: ถ้าสั่งแก้จะเปลี่ยนเป็น 'ready_to_fix' พร้อมเหตุผล (reviewReason) และคำสั่งในการแก้/Deploy (fixInstructions, deployCommand); ถ้าไม่แก้จะเปลี่ยนเป็น 'wont_fix' พร้อมเหตุผล",
+            "2. Antigravity วิเคราะห์สาเหตุ -> เรียก submit_claude_review: ถ้าสั่งแก้จะเปลี่ยนเป็น 'ready_to_fix' พร้อมเหตุผล (reviewReason) และคำสั่งในการแก้/Deploy (fixInstructions, deployCommand); ถ้าไม่แก้จะเปลี่ยนเป็น 'wont_fix' พร้อมเหตุผล และต้องระบุหมวด wontFixCategory ทุกครั้ง",
             "3. รอผู้ดูแล (Admin) อนุมัติให้ AI แก้ไขในหน้าเว็บ — ดู aiFixAllowed ใน readyToFixQueue (หรือโปรเจกต์เปิดโหมดอัตโนมัติ)",
             "4. เฉพาะเรื่องที่ aiFixAllowed = true เท่านั้น -> เรียก claim_for_fix (เปลี่ยนเป็น 'fixing') แล้วแก้โค้ด + ทดสอบ + Deploy จากนั้นเรียก mark_deployed (เปลี่ยนเป็น 'deployed')",
           ],
@@ -302,6 +313,7 @@ export function createIssueMateMcpServer(
         .array(z.string())
         .optional()
         .describe("รายการ Checklist งานย่อยสำหรับ Antigravity (ถ้าต้องการตั้งใหม่)"),
+      wontFixCategory: WontFixCategorySchema,
     },
     async (args) => {
       const code = await assertIssueBelongsToProject(args.code, args.projectKey, "change_status");
@@ -340,6 +352,7 @@ export function createIssueMateMcpServer(
           deployCommand: args.deployCommand,
         },
         subtasks: patchSubtasks,
+        wontFixCategory: args.wontFixCategory,
         aiSummary:
           args.decision === "fix"
             ? `Antigravity Review: สั่งแก้ (รอแก้) — ${args.reviewReason}`
@@ -365,7 +378,7 @@ export function createIssueMateMcpServer(
                 args.deployCommand ? `- **คำสั่ง Deploy**: \`${args.deployCommand}\`` : ""
               }${approvalLine}`
             : args.decision === "wont_fix"
-            ? `### ⛔ ผลรีวิวจาก Antigravity: **ไม่แก้ (สถานะ: \`wont_fix\`)**\n- **เหตุผลที่ไม่แก้**: ${args.reviewReason}`
+            ? `### ⛔ ผลรีวิวจาก Antigravity: **ไม่แก้ (สถานะ: \`wont_fix\`)**\n- **หมวด**: ${updated.wontFixCategory ? WONT_FIX_CATEGORIES[updated.wontFixCategory] : "-"}\n- **เหตุผลที่ไม่แก้**: ${args.reviewReason}`
             : `### 🔍 Antigravity กำลังรีวิว (สถานะ: \`reviewing\`)\n- **บันทึกการวิเคราะห์เบื้องต้น**: ${args.reviewReason}`,
         isResolution: args.decision === "wont_fix",
       });
@@ -798,6 +811,7 @@ export function createIssueMateMcpServer(
         })
         .optional(),
       aiSummary: z.string().optional(),
+      wontFixCategory: WontFixCategorySchema,
       files: z.array(InlineFileSchema).optional(),
     },
     async (args) => {
@@ -838,6 +852,8 @@ export function createIssueMateMcpServer(
           args.status,
           await getProjectByKey(normalizedKey)
         );
+        // ตรวจก่อนอัปโหลดไฟล์ จะได้ไม่มีไฟล์ค้างใน MinIO ถ้าสร้างไม่สำเร็จ
+        if (args.status === "wont_fix") assertValidWontFixCategory(args.wontFixCategory);
         if (blocked) {
           throw new Error(
             `${blocked} — สร้างเรื่องใหม่ได้ในสถานะ open หรือ ready_to_fix แล้วรอผู้ดูแลอนุมัติ`
@@ -876,6 +892,7 @@ export function createIssueMateMcpServer(
         devopsMeta: canManage ? args.devopsMeta : undefined,
         reviewMeta: canManage ? args.reviewMeta : undefined,
         aiSummary: canManage ? args.aiSummary : undefined,
+        wontFixCategory: canManage ? args.wontFixCategory : undefined,
       });
 
       return {
@@ -976,6 +993,7 @@ export function createIssueMateMcpServer(
         .enum(["open", "reviewing", "ready_to_fix", "fixing", "deployed", "wont_fix"])
         .optional(),
       deployResult: z.string().optional(),
+      wontFixCategory: WontFixCategorySchema,
       completeSubtaskNumbers: z.array(z.number()).optional(),
       reactionEmoji: z.string().optional(),
       files: z.array(InlineFileSchema).optional(),
@@ -1007,6 +1025,9 @@ export function createIssueMateMcpServer(
 
       // Check the approval gate before any side effect (file uploads, comments)
       const autoApproval = await requireAiFixApproval(normalized, args.newStatus);
+      if (args.newStatus === "wont_fix" && existing.status !== "wont_fix") {
+        assertValidWontFixCategory(args.wontFixCategory);
+      }
       const uploadedFiles = await uploadInlineFiles(
         args.files,
         agentName,
@@ -1025,6 +1046,7 @@ export function createIssueMateMcpServer(
       if (updatedSubtasks || args.reactionEmoji || args.newStatus || args.deployResult) {
         updated = await updateIssue(normalized, {
           status: args.newStatus,
+          wontFixCategory: args.wontFixCategory,
           aiFixApproval: autoApproval,
           subtasks: updatedSubtasks,
           reviewMeta: args.deployResult
@@ -1087,6 +1109,7 @@ export function createIssueMateMcpServer(
       priority: z.enum(["critical", "high", "medium", "low"]).optional(),
       assignee: z.string().optional(),
       aiSummary: z.string().optional(),
+      wontFixCategory: WontFixCategorySchema,
       actor: z.string().optional().default("Antigravity"),
     },
     async ({ projectKey, code, ...patch }) => {

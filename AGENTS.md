@@ -11,7 +11,7 @@
 3. `ready_to_fix` — **3. รอแก้ (Ready for Antigravity — รีวิวผ่านแล้ว มี `reviewReason`, `fixInstructions`, `targetFiles`, `deployCommand`)** — AI เริ่มแก้ได้เมื่อผู้ดูแลอนุมัติ (`aiFixApproval.status = "approved"`) หรือโปรเจกต์เปิดโหมดอัตโนมัติ (`project.aiAutoApproval.enabled`)
 4. `fixing` — **4. กำลังแก้/Deploy (Antigravity Fixing & Deploying)**
 5. `deployed` — **5. Deploy แล้ว (Deployed & Verified — พร้อม `deployResult`)**
-6. `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected — รีวิวแล้วตัดสินใจไม่แก้ พร้อม `reviewReason`)**
+6. `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected — รีวิวแล้วตัดสินใจไม่แก้ พร้อม `reviewReason`)** — ต้องระบุหมวด `wontFixCategory` ทุกครั้ง (`WONT_FIX_CATEGORIES` ใน `lib/types.ts`) ทั้ง MCP และหน้าเว็บ; ตรวจที่ `applyStatusChange` ใน `lib/issue-service.ts`
 
 ## การอนุมัติก่อนให้ AI แก้ไข (Admin Approval Gate)
 - กฎทั้งหมดอยู่ใน `lib/ai-approval.ts` (ใช้ร่วมกันทั้ง MCP และ UI): สถานะ `fixing`/`deployed` ผ่าน MCP ต้องได้รับอนุมัติ, การ "ไม่อนุมัติ" ชนะโหมดอัตโนมัติเสมอ, เรื่องประเภท `question` ไม่ต้องอนุมัติ

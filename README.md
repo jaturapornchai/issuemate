@@ -130,7 +130,7 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 1. เรียก MCP tool `get_ai_context` (ส่ง `projectKey: "YOUR_PROJECT_KEY"`) เพื่อตรวจสอบโปรเจกต์และดึงรายการปัญหาทั้งหมดที่รอรีวิว (open) และรอแก้ไข (ready_to_fix)
    - หากยังไม่มีโปรเจกต์ "YOUR_PROJECT_KEY" ในระบบ ให้ถามยืนยันรหัสย่อ (key), ชื่อโปรเจกต์ (name) และคำอธิบาย (description) กับฉันให้เรียบร้อยก่อน แล้วจึงเรียก `create_project` โดยส่ง `confirmedByUser: true`
 2. สำหรับแต่ละ Issue ให้เรียก `get_issue` เพื่ออ่านรายละเอียด ขั้นตอนจำลองปัญหา ข้อมูลอุปกรณ์ (Device & Environment Info) และเปิดดูรูปภาพ/ไฟล์แนบทั้งหมดที่ผู้ใช้แนบไว้
-3. วิเคราะห์สาเหตุของปัญหา แล้วเรียก `submit_claude_review` บันทึกผลวิเคราะห์ (เลือก decision="fix" พร้อมระบุ fixInstructions และ targetFiles หรือ decision="wont_fix" หากไม่ต้องแก้)
+3. วิเคราะห์สาเหตุของปัญหา แล้วเรียก `submit_claude_review` บันทึกผลวิเคราะห์ (เลือก decision="fix" พร้อมระบุ fixInstructions และ targetFiles หรือ decision="wont_fix" พร้อม wontFixCategory หากไม่ต้องแก้)
 4. แก้โค้ดได้เฉพาะเรื่องที่ `aiFixAllowed: true` (ผู้ดูแลกดอนุมัติให้ AI แก้ไขแล้ว หรือโปรเจกต์เปิดโหมดอัตโนมัติ):
    - เรื่องที่ยังไม่อนุมัติ (`aiFixAllowed: false` / `pending`) ให้รีวิวเสร็จแล้วรอผู้ดูแลอนุมัติ ห้ามแก้โค้ด
    - เรื่องที่ผู้ดูแลกด "ไม่อนุมัติ" (`rejected`) ห้ามแตะโค้ดเด็ดขาดแม้โปรเจกต์เปิดโหมดอัตโนมัติ
@@ -177,7 +177,7 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 | `get_issue` | ดึงข้อมูลเชิงลึกของ Issue พร้อม URL รูปภาพ ไฟล์แนบ และสถานะ `aiFixAllowed` / `aiFixBlockedReason` (บล็อกทันทีหากข้ามโปรเจกต์) |
 | `find_similar_issues` | ค้นหา Issue หรือคำถามที่คล้ายกันในโปรเจกต์ก่อนสร้างรายการใหม่ |
 | `create_issue` | สร้างรายการปัญหา/คำถามใหม่ พร้อมอัปโหลดรูปภาพหรือไฟล์แนบ (Base64 / Text / URL) เข้า MinIO S3 |
-| `submit_claude_review` | บันทึกผลวิเคราะห์สาเหตุ: เลือก `decision: "fix"` (ย้ายไป `ready_to_fix`) หรือ `decision: "wont_fix"` |
+| `submit_claude_review` | บันทึกผลวิเคราะห์สาเหตุ: เลือก `decision: "fix"` (ย้ายไป `ready_to_fix`) หรือ `decision: "wont_fix"` (ต้องระบุ `wontFixCategory`: `test_error` / `duplicate` / `by_design` / `cannot_reproduce` / `other`) |
 | `claim_for_fix` | รับงานจาก `ready_to_fix` เข้าสู่สถานะ `fixing` แบบ Atomic (ป้องกัน Agent ชนกัน) — บังคับตรวจ `requireAiFixApproval` ก่อนเสมอ |
 | `mark_deployed` | บันทึกผลการแก้ไขและผลการ Deploy ขึ้นเซิร์ฟเวอร์ (`deployed`) — บังคับตรวจ `requireAiFixApproval` ก่อนเสมอ |
 | `claim_and_plan_issue` | รับเรื่องพร้อมแตก Subtasks แผนการแก้ไขและโพสต์คอมเมนต์ในคำสั่งเดียว (ตรวจการอนุมัติหากเปลี่ยนเข้า `fixing`/`deployed`) |

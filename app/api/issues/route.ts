@@ -179,6 +179,7 @@ export async function POST(req: Request) {
       devopsMeta: canManage ? body.devopsMeta || undefined : undefined,
       reviewMeta: canManage ? body.reviewMeta || undefined : undefined,
       aiSummary: canManage && body.aiSummary ? String(body.aiSummary) : undefined,
+      wontFixCategory: canManage ? body.wontFixCategory : undefined,
     });
     return NextResponse.json({ issue }, { status: 201 });
   } catch (err: unknown) {

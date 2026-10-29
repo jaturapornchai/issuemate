@@ -14,6 +14,7 @@ import {
   ListTodo,
   FolderKanban,
   Shapes,
+  UserCheck,
 } from "lucide-react";
 import type {
   IssuePriority,
@@ -21,7 +22,9 @@ import type {
   IssueStatusFilter,
   IssueType,
   MonitorStats,
+  WontFixCategory,
 } from "@/lib/types";
+import { WONT_FIX_CATEGORIES } from "@/lib/types";
 import {
   PriorityBadge,
   StatusBadge,
@@ -494,6 +497,42 @@ export function MonitorDashboardView({
                           {a.completed}
                         </span>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="card p-4 sm:p-5" data-testid="reporter-quality-card">
+              <CardTitle
+                icon={UserCheck}
+                title="คุณภาพเรื่องที่แจ้งเข้ามา"
+                right={<span className="text-xs text-fg-subtle">ปิดแบบไม่แก้ไข / ทั้งหมด</span>}
+              />
+              {stats.reporterQuality.length === 0 ? (
+                <p className="py-4 text-center text-[13px] text-fg-subtle">ยังไม่มีเรื่องที่แจ้งเข้ามา</p>
+              ) : (
+                <div className="space-y-2">
+                  {stats.reporterQuality.map((r) => (
+                    <div key={r.reporter} className="rounded-lg px-1 py-1.5">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={r.reporter} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{r.reporter}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-fg-subtle" title="ปิดแบบไม่แก้ไข / เรื่องทั้งหมด">
+                          <span className={r.wontFix > 0 ? "font-semibold text-fg" : undefined}>{r.wontFix}</span>/{r.total}{" "}
+                          ({Math.round((r.wontFix / r.total) * 100)}%)
+                        </span>
+                      </div>
+                      {r.wontFix > 0 && (
+                        <p className="mt-1 pl-11 text-[11px] text-fg-subtle">
+                          {Object.entries(r.byCategory)
+                            .map(
+                              ([k, n]) =>
+                                `${k === "unspecified" ? "ไม่ระบุหมวด" : WONT_FIX_CATEGORIES[k as WontFixCategory]} ${n}`
+                            )
+                            .join(" · ")}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

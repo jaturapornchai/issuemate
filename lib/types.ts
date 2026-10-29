@@ -6,6 +6,17 @@ export type IssueStatus =
   | "deployed"     // 5. Deploy แล้ว (แก้ไข ทดสอบ และ Deploy สำเร็จ)
   | "wont_fix";    // 6. ไม่แก้ (รีวิวแล้วตัดสินใจไม่แก้ พร้อมเหตุผลชัดเจน)
 
+/** หมวดเหตุผลเมื่อปิดเรื่องแบบไม่แก้ไข (ต้องเลือกทุกครั้ง) — ใช้วัดคุณภาพเรื่องที่ผู้แจ้งแต่ละรายส่งเข้ามา */
+export const WONT_FIX_CATEGORIES = {
+  test_error: "ตัวทดสอบผิดเอง (ไม่ใช่บั๊กระบบ)",
+  duplicate: "ซ้ำกับเรื่องอื่น",
+  by_design: "ระบบทำงานตามที่ออกแบบ",
+  cannot_reproduce: "ทำซ้ำไม่ได้",
+  other: "อื่นๆ",
+} as const;
+
+export type WontFixCategory = keyof typeof WONT_FIX_CATEGORIES;
+
 export type IssueStatusFilter =
   | IssueStatus
   | "all"
@@ -149,6 +160,7 @@ export interface IssueRecord {
   devopsMeta?: DevopsMetadata;   // ข้อมูลเซิร์ฟเวอร์ / Service / Severity / Environment
   reviewMeta?: ReviewAndFixMeta; // ข้อมูลผลรีวิวจาก Claude + เหตุผล + คำสั่งแก้และ Deploy สำหรับ Antigravity
   aiFixApproval?: AiFixApproval; // การอนุมัติจากผู้ดูแลก่อนให้ AI แก้ไขอัตโนมัติ (ไม่มี = รออนุมัติ)
+  wontFixCategory?: WontFixCategory; // มีเฉพาะตอนสถานะ wont_fix (ล้างทิ้งเมื่อเปิดเรื่องใหม่)
   aiTriage?: {
     summary: string;
     confidence: number;
@@ -199,6 +211,13 @@ export interface MonitorStats {
   }>;
   byType: Record<IssueType, number>;
   byPriority: Record<IssuePriority, number>;
+  /** ผู้แจ้งที่ส่งเรื่องมากสุด: ปิดแบบไม่แก้ไขกี่เรื่อง แยกตามหมวด ("unspecified" = ปิดก่อนมีหมวด) */
+  reporterQuality: Array<{
+    reporter: string;
+    total: number;
+    wontFix: number;
+    byCategory: Partial<Record<WontFixCategory | "unspecified", number>>;
+  }>;
   byAssignee: Array<{
     assignee: string;
     pendingReview: number;

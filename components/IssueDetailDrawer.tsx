@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X,
   Send,
@@ -34,6 +34,8 @@ import {
   ReviewAndFixMeta,
   AiAutoApprovalSetting,
   AiFixApprovalStatus,
+  WontFixCategory,
+  WONT_FIX_CATEGORIES,
 } from "@/lib/types";
 import {
   StatusBadge,
@@ -158,6 +160,8 @@ export function IssueDetailDrawer({
   const [savedReviewNotice, setSavedReviewNotice] = useState(false);
   const [approvalNote, setApprovalNote] = useState("");
   const [savingApproval, setSavingApproval] = useState(false);
+  const [wontFixCategory, setWontFixCategory] = useState<WontFixCategory | "">("");
+  const wontFixSelectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
     if (currentUserName) {
@@ -178,6 +182,7 @@ export function IssueDetailDrawer({
       setDeployCommand(rm?.deployCommand || "");
       setFixedBy(rm?.fixedBy || "Antigravity");
       setDeployResult(rm?.deployResult || "");
+      setWontFixCategory(issue.wontFixCategory || "");
     }
   }, [issue]);
 
@@ -251,10 +256,20 @@ export function IssueDetailDrawer({
     }
   };
 
+  /** ปิดแบบไม่แก้ไขต้องเลือกหมวดก่อน — ถ้ายังไม่เลือก พาไปที่ช่องเลือกหมวด */
+  const missingWontFixCategory = () => {
+    if (wontFixCategory) return false;
+    setDrawerError("กรุณาเลือกเหตุผลที่ไม่แก้ไขก่อนปิดเรื่อง");
+    wontFixSelectRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    wontFixSelectRef.current?.focus();
+    return true;
+  };
+
   const handleSaveReviewAndStatus = async (
     nextStatus?: IssueStatus,
     nextDecision?: "pending" | "fix" | "wont_fix"
   ) => {
+    if (nextStatus === "wont_fix" && missingWontFixCategory()) return;
     setSavingReview(true);
     setDrawerError(null);
     try {
@@ -265,6 +280,7 @@ export function IssueDetailDrawer({
       };
       if (nextStatus) {
         updates.status = nextStatus;
+        if (nextStatus === "wont_fix") updates.wontFixCategory = wontFixCategory;
       }
       await onUpdate(issue.code, updates);
       setSavedReviewNotice(true);
@@ -617,25 +633,53 @@ export function IssueDetailDrawer({
                   <span className="text-xs text-fg-subtle">
                     {isWontFix ? "เรื่องนี้ปิดแล้วโดยไม่ต้องแก้ไขระบบ" : "ไม่จำเป็นต้องแก้ไข?"}
                   </span>
-                  <button
-                    type="button"
-                    disabled={!canManageStatus}
-                    data-testid="status-step-wont_fix"
-                    aria-current={isWontFix ? "step" : undefined}
-                    onClick={() =>
-                      canManageStatus &&
-                      void runDrawerUpdate(
-                        { status: "wont_fix" },
-                        `เปลี่ยนสถานะเป็น "${STATUS_CONFIG.wont_fix.label}" สำเร็จแล้ว`
-                      )
-                    }
-                    className={`btn btn-xs ${
-                      isWontFix ? "bg-white/[0.08] text-fg ring-1 ring-line-strong" : "btn-ghost"
-                    } disabled:opacity-60`}
-                  >
-                    <CircleSlash className="h-3.5 w-3.5" />
-                    {STATUS_CONFIG.wont_fix.label}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(canManageStatus || isWontFix) && (
+                      <select
+                        ref={wontFixSelectRef}
+                        data-testid="wont-fix-category"
+                        aria-label="หมวดเหตุผลที่ไม่แก้ไข"
+                        className="select h-8 w-auto max-w-[240px] text-xs"
+                        value={wontFixCategory}
+                        disabled={!canManageStatus}
+                        onChange={(e) => {
+                          const next = e.target.value as WontFixCategory | "";
+                          setWontFixCategory(next);
+                          // เรื่องที่ปิดแบบไม่แก้ไขอยู่แล้ว: เปลี่ยนหมวดได้ทันที
+                          if (isWontFix && next) {
+                            void runDrawerUpdate({ wontFixCategory: next }, "เปลี่ยนหมวดเหตุผลที่ไม่แก้ไขแล้ว");
+                          }
+                        }}
+                      >
+                        <option value="">เลือกเหตุผลที่ไม่แก้ไข…</option>
+                        {(Object.keys(WONT_FIX_CATEGORIES) as WontFixCategory[]).map((k) => (
+                          <option key={k} value={k}>
+                            {WONT_FIX_CATEGORIES[k]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!canManageStatus}
+                      data-testid="status-step-wont_fix"
+                      aria-current={isWontFix ? "step" : undefined}
+                      onClick={() =>
+                        canManageStatus &&
+                        !missingWontFixCategory() &&
+                        void runDrawerUpdate(
+                          { status: "wont_fix", wontFixCategory },
+                          `เปลี่ยนสถานะเป็น "${STATUS_CONFIG.wont_fix.label}" สำเร็จแล้ว`
+                        )
+                      }
+                      className={`btn btn-xs ${
+                        isWontFix ? "bg-white/[0.08] text-fg ring-1 ring-line-strong" : "btn-ghost"
+                      } disabled:opacity-60`}
+                    >
+                      <CircleSlash className="h-3.5 w-3.5" />
+                      {STATUS_CONFIG.wont_fix.label}
+                    </button>
+                  </div>
                 </div>
               </div>
 

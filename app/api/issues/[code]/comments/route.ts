@@ -101,6 +101,7 @@ export async function POST(
       attachments,
       isResolution: Boolean(body.isResolution),
       nextStatus: body.nextStatus || undefined,
+      wontFixCategory: body.wontFixCategory || undefined,
     });
     return NextResponse.json({ issue: updated }, { status: 201 });
   } catch (err: unknown) {

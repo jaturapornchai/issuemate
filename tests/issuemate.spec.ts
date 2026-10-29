@@ -1224,4 +1224,176 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
     }
   });
+
+  test("6. Won't-fix reason category + reporter quality + similar-issue history", async ({ page, request, baseURL }) => {
+    const projKey = `WF${uniqueSuffix}`;
+    await request.post("/api/projects", {
+      headers: ADMIN,
+      data: { key: projKey, name: `โปรเจกต์หมวดไม่แก้ไข ${projKey}`, color: "#71717a" },
+    });
+    const tokenRes = await request.post("/api/mcp/tokens", {
+      headers: ADMIN,
+      data: {
+        name: "UAT Lead",
+        projectKey: projKey,
+        ownerEmail: TEST_ADMIN_EMAIL,
+        ownerName: "Super Admin",
+        agentRole: "antigravity_fixer",
+      },
+    });
+    expect(tokenRes.status()).toBe(201);
+    const tokenData = await tokenRes.json();
+    const token = tokenData.rawToken as string;
+    const resultText = (r: { json: { result: { content: Array<{ text: string }> } } }) =>
+      r.json.result.content[0].text;
+    const newIssue = async (title: string) => {
+      const res = await request.post("/api/issues", {
+        headers: ADMIN,
+        data: { projectKey: projKey, title, type: "bug", priority: "high" },
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).issue;
+    };
+    const getIssue = async (code: string) =>
+      (await (await request.get(`/api/issues/${code}`, { headers: ADMIN })).json()).issue;
+
+    try {
+      // 6.1 MCP: closing as wont_fix needs a category
+      const a = await newIssue("ไม่แก้ผ่าน MCP");
+      const noCategory = await mcpTool(request, token, projKey, "submit_claude_review", {
+        code: a.code,
+        decision: "wont_fix",
+        reviewReason: "สคริปต์ทดสอบผิดเอง",
+      });
+      expect(noCategory.json.result.isError).toBeTruthy();
+      expect(resultText(noCategory)).toContain("wontFixCategory");
+      expect((await getIssue(a.code)).status).toBe("open");
+      const withCategory = await mcpTool(request, token, projKey, "submit_claude_review", {
+        code: a.code,
+        decision: "wont_fix",
+        reviewReason: "สคริปต์ทดสอบผิดเอง",
+        wontFixCategory: "test_error",
+      });
+      expect(withCategory.json.result.isError).toBeFalsy();
+      const closedA = await getIssue(a.code);
+      expect(closedA.status).toBe("wont_fix");
+      expect(closedA.wontFixCategory).toBe("test_error");
+      expect(
+        closedA.timeline.find((t: { action: string }) => t.action === "status_changed").detail
+      ).toContain("ตัวทดสอบผิดเอง");
+
+      // 6.2 Web: same rule, and the category of a closed issue can be changed on its own
+      const b = await newIssue("ปิดผ่านหน้าเว็บพร้อมหมวด");
+      const webNoCategory = await request.patch(`/api/issues/${b.code}`, { headers: ADMIN, data: { status: "wont_fix" } });
+      expect(webNoCategory.status()).toBe(400);
+      expect((await webNoCategory.json()).error).toContain("หมวดเหตุผลที่ไม่แก้ไข");
+      const webBadCategory = await request.patch(`/api/issues/${b.code}`, {
+        headers: ADMIN,
+        data: { status: "wont_fix", wontFixCategory: "toString" },
+      });
+      expect(webBadCategory.status()).toBe(400);
+      const webClose = await request.patch(`/api/issues/${b.code}`, {
+        headers: ADMIN,
+        data: { status: "wont_fix", wontFixCategory: "by_design" },
+      });
+      expect(webClose.status()).toBe(200);
+      expect((await webClose.json()).issue.wontFixCategory).toBe("by_design");
+      const recategorize = await request.patch(`/api/issues/${b.code}`, {
+        headers: ADMIN,
+        data: { wontFixCategory: "duplicate" },
+      });
+      expect(recategorize.status()).toBe(200);
+      const recategorized = (await recategorize.json()).issue;
+      expect(recategorized.status).toBe("wont_fix");
+      expect(recategorized.wontFixCategory).toBe("duplicate");
+      expect(recategorized.timeline.at(-1).action).toBe("wont_fix_category_changed");
+
+      // 6.3 Regression: reopening through a comment clears the old AI approval and the category
+      const c = await newIssue("อนุมัติแล้วปิดแล้วเปิดใหม่ผ่านความคิดเห็น");
+      const reviewC = await mcpTool(request, token, projKey, "submit_claude_review", {
+        code: c.code,
+        decision: "fix",
+        reviewReason: "พบสาเหตุแล้ว",
+        fixInstructions: "แก้ไฟล์ที่เกี่ยวข้อง",
+      });
+      expect(reviewC.json.result.isError).toBeFalsy();
+      expect(
+        (await request.patch(`/api/issues/${c.code}`, { headers: ADMIN, data: { aiFixApproval: { status: "approved" } } })).status()
+      ).toBe(200);
+      expect(
+        (
+          await request.patch(`/api/issues/${c.code}`, {
+            headers: ADMIN,
+            data: { status: "wont_fix", wontFixCategory: "other" },
+          })
+        ).status()
+      ).toBe(200);
+      const reopen = await request.post(`/api/issues/${c.code}/comments`, {
+        headers: ADMIN,
+        data: { body: "เปิดใหม่ เพราะยังเกิดซ้ำ", nextStatus: "open" },
+      });
+      expect(reopen.status()).toBe(201);
+      const reopened = (await reopen.json()).issue;
+      expect(reopened.status).toBe("open");
+      expect(reopened.aiFixApproval).toBeUndefined();
+      expect(reopened.wontFixCategory).toBeUndefined();
+      expect(reopened.timeline.map((t: { action: string }) => t.action)).toContain("ai_fix_approval_reset");
+
+      // 6.4 A new issue that repeats an earlier one gets the earlier outcome attached
+      const d1 = await newIssue("[UAT] บันทึกใบสั่งซื้อไม่ได้ — หน้าจอ PO");
+      expect(d1.comments).toEqual([]);
+      const closeD1 = await mcpTool(request, token, projKey, "submit_claude_review", {
+        code: d1.code,
+        decision: "wont_fix",
+        reviewReason: "สคริปต์ทดสอบกดปุ่มผิดตำแหน่ง",
+        wontFixCategory: "test_error",
+      });
+      expect(closeD1.json.result.isError).toBeFalsy();
+      const d2 = await newIssue("[UAT-รอบ2] บันทึกใบสั่งซื้อไม่ได้ — กดบันทึกแล้วค้าง");
+      expect(d2.relatedCodes).toContain(d1.code);
+      expect(d2.comments).toHaveLength(1);
+      expect(d2.comments[0].author).toBe("IssueMate");
+      expect(d2.comments[0].body).toContain(`#${d1.code}`);
+      expect(d2.comments[0].body).toContain("ตัวทดสอบผิดเอง");
+      expect(d2.comments[0].body).toContain("สคริปต์ทดสอบกดปุ่มผิดตำแหน่ง");
+      const e = await newIssue("รายงานภาษีขายพิมพ์ไม่ออก");
+      expect(e.comments).toEqual([]);
+      expect(e.relatedCodes).toEqual([]);
+
+      // 6.5 UI: the drawer asks for a category before closing as wont_fix
+      const u = await newIssue("ปิดเรื่องจากหน้าจอโดยเลือกหมวด");
+      const errors = watchErrors(page);
+      await loginBrowserAs(page, TEST_ADMIN_EMAIL, baseURL!);
+      await page.goto("/");
+      await page.getByTestId(`project-item-${projKey}`).click();
+      await page.getByTestId(`issue-row-${u.code}`).click();
+      const drawer = page.getByTestId("issue-detail-drawer");
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId("status-step-wont_fix").click();
+      await expect(drawer.getByText("กรุณาเลือกเหตุผลที่ไม่แก้ไขก่อนปิดเรื่อง")).toBeVisible();
+      expect((await getIssue(u.code)).status).toBe("open");
+      await drawer.getByTestId("wont-fix-category").selectOption("cannot_reproduce");
+      await drawer.getByTestId("status-step-wont_fix").click();
+      await expect.poll(async () => (await getIssue(u.code)).wontFixCategory).toBe("cannot_reproduce");
+      expect((await getIssue(u.code)).status).toBe("wont_fix");
+      await page.keyboard.press("Escape");
+      await page.getByTestId("nav-monitor-btn").click();
+      await expect(page.getByTestId("reporter-quality-card")).toContainText(/ทำซ้ำไม่ได้ \d+/);
+      expect(errors).toEqual([]);
+
+      // 6.6 Reporter quality: closed-without-fix counts per category
+      const stats = (await (await request.get(`/api/monitor?projectKey=${projKey}`, { headers: ADMIN })).json()).stats;
+      expect(stats.reporterQuality).toEqual([
+        {
+          reporter: expect.any(String),
+          total: 7,
+          wontFix: 4,
+          byCategory: { test_error: 2, duplicate: 1, cannot_reproduce: 1 },
+        },
+      ]);
+    } finally {
+      await request.delete(`/api/mcp/tokens?id=${tokenData.token?.id}`, { headers: ADMIN });
+      await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
+    }
+  });
 });

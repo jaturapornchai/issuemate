@@ -16,7 +16,9 @@ import type {
   TimelineEvent,
   MonitorStats,
   AiFixApproval,
+  WontFixCategory,
 } from "./types";
+import { WONT_FIX_CATEGORIES } from "./types";
 
 export function normalizeProjectKey(raw: string): string {
   return raw
@@ -74,6 +76,17 @@ export function assertValidPriority(priority: unknown): IssuePriority {
     throw new Error(`ระดับความสำคัญไม่ถูกต้อง: ${String(priority)}`);
   }
   return p;
+}
+
+const WONT_FIX_CATEGORY_KEYS = Object.keys(WONT_FIX_CATEGORIES) as WontFixCategory[];
+
+export function assertValidWontFixCategory(category: unknown): WontFixCategory {
+  const c = String(category || "") as WontFixCategory;
+  if (!WONT_FIX_CATEGORY_KEYS.includes(c)) {
+    const choices = WONT_FIX_CATEGORY_KEYS.map((k) => `${k} = ${WONT_FIX_CATEGORIES[k]}`).join(", ");
+    throw new Error(`กรุณาเลือกหมวดเหตุผลที่ไม่แก้ไข (wontFixCategory): ${choices}`);
+  }
+  return c;
 }
 
 function getBangkokDatePrefix(date = new Date()): string {
@@ -413,6 +426,85 @@ export async function findSimilarIssues(
   }));
 }
 
+/** หัวเรื่องสำหรับเทียบความคล้าย: ตัด [แท็ก] ด้านหน้าและส่วนขยายหลัง " — " ออก */
+function similarityHead(title: string): string {
+  return title.toLowerCase().replace(/^\s*\[[^\]]*\]\s*/, "").split(" — ")[0].replace(/\s+/g, " ").trim();
+}
+
+function trigramsOf(text: string): Set<string> {
+  const grams = new Set<string>();
+  for (let i = 0; i + 3 <= text.length; i++) grams.add(text.slice(i, i + 3));
+  return grams;
+}
+
+function diceSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const g of a) if (b.has(g)) shared++;
+  return (2 * shared) / (a.size + b.size);
+}
+
+// ponytail: เทียบตัวอักษรของหัวเรื่อง (trigram) กับ 300 เรื่องล่าสุดในโปรเจกต์ — วัดจากเรื่องจริง 133 เรื่อง เรื่องซ้ำจริงได้ 1.00 ทุกคู่
+// ถ้าต้องจับเรื่องที่ความหมายเหมือนแต่เขียนต่างกัน ค่อยเปลี่ยนเป็น embedding
+const SIMILAR_MIN_SCORE = 0.85;
+const SIMILAR_SCAN_LIMIT = 300;
+
+/** ประวัติเรื่องคล้ายในโปรเจกต์เดียวกัน (สูงสุด 3 เรื่อง) สำหรับแนบเป็นบันทึกระบบตอนสร้างเรื่องใหม่ */
+async function findPriorSimilarIssues(
+  issues: Awaited<ReturnType<typeof getCollections>>["issues"],
+  projectKey: string,
+  title: string
+): Promise<{ codes: string[]; note: string } | null> {
+  const head = trigramsOf(similarityHead(title));
+  if (head.size === 0) return null;
+
+  const candidates = await issues
+    .find({ projectKey })
+    .project<Pick<IssueRecord, "code" | "title">>({ code: 1, title: 1 })
+    .sort({ createdAt: -1 })
+    .limit(SIMILAR_SCAN_LIMIT)
+    .toArray();
+  const top = candidates
+    .map((c) => ({ code: c.code, score: diceSimilarity(head, trigramsOf(similarityHead(c.title || ""))) }))
+    .filter((c) => c.score >= SIMILAR_MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  if (top.length === 0) return null;
+
+  const details = await issues
+    .find({ code: { $in: top.map((t) => t.code) } })
+    .project<Pick<IssueRecord, "code" | "title" | "status" | "wontFixCategory" | "reviewMeta" | "comments">>({
+      code: 1,
+      title: 1,
+      status: 1,
+      wontFixCategory: 1,
+      "reviewMeta.reviewReason": 1,
+      "reviewMeta.deployResult": 1,
+      comments: { $slice: -1 },
+    })
+    .toArray();
+  const byCode = new Map(details.map((d) => [d.code, d]));
+
+  const lines = top.flatMap(({ code }) => {
+    const d = byCode.get(code);
+    if (!d) return [];
+    const category = d.wontFixCategory ? ` · หมวด: ${WONT_FIX_CATEGORIES[d.wontFixCategory]}` : "";
+    const out = [`- #${d.code} · ${STATUS_NAME_MAP[d.status] || d.status}${category} — ${d.title}`];
+    if (TERMINAL_STATUSES.includes(d.status)) {
+      const reason =
+        (d.status === "deployed" ? d.reviewMeta?.deployResult : d.reviewMeta?.reviewReason) || d.comments?.[0]?.body || "";
+      const oneLine = reason.replace(/\s+/g, " ").trim();
+      if (oneLine) out.push(`  ผลครั้งก่อน: ${oneLine.slice(0, 200)}${oneLine.length > 200 ? "..." : ""}`);
+    }
+    return out;
+  });
+
+  return {
+    codes: top.map((t) => t.code),
+    note: ["🔎 พบเรื่องคล้ายที่เคยแจ้งในโปรเจกต์นี้ — ตรวจดูก่อนเริ่มแก้:", ...lines].join("\n"),
+  };
+}
+
 export async function getIssueByCode(code: string): Promise<IssueRecord | null> {
   const { issues } = await getCollections();
   const normalized = code.trim().replace(/^#/, "").toUpperCase();
@@ -441,6 +533,8 @@ export async function createIssue(input: {
   devopsMeta?: DevopsMetadata;
   reviewMeta?: ReviewAndFixMeta;
   aiSummary?: string;
+  /** บังคับเมื่อสร้างเรื่องในสถานะ wont_fix */
+  wontFixCategory?: WontFixCategory;
 }): Promise<IssueRecord> {
   const { projects, issues } = await getCollections();
   const projectKey = normalizeProjectKey(input.projectKey);
@@ -451,6 +545,8 @@ export async function createIssue(input: {
   const initialStatus: IssueStatus = input.status ? assertValidStatus(input.status) : "open";
   const issueType: IssueType = input.type ? assertValidType(input.type) : "bug";
   const issuePriority: IssuePriority = input.priority ? assertValidPriority(input.priority) : "high";
+  const wontFixCategory =
+    initialStatus === "wont_fix" ? assertValidWontFixCategory(input.wontFixCategory) : undefined;
 
   const projectUpdate = await projects.findOneAndUpdate(
     { key: projectKey },
@@ -479,6 +575,11 @@ export async function createIssue(input: {
       )
     : [];
 
+  const similar = await findPriorSimilarIssues(issues, projectKey, title);
+  const relatedCodes = Array.from(
+    new Set([...(Array.isArray(input.relatedCodes) ? input.relatedCodes : []), ...(similar?.codes || [])])
+  );
+
   const timelineEvent: TimelineEvent = {
     id: crypto.randomUUID(),
     actor: reporter,
@@ -505,7 +606,8 @@ export async function createIssue(input: {
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
     subtasks: normalizedSubtasks,
     reactions: { "👍": [reporter] },
-    relatedCodes: Array.isArray(input.relatedCodes) ? input.relatedCodes : [],
+    relatedCodes,
+    ...(wontFixCategory ? { wontFixCategory } : {}),
     devopsMeta: input.devopsMeta || {
       environment: "Production",
       incidentSeverity: issuePriority === "critical" ? "SEV-1" : "SEV-2",
@@ -513,7 +615,19 @@ export async function createIssue(input: {
     reviewMeta: input.reviewMeta || {
       decision: initialStatus === "ready_to_fix" ? "fix" : initialStatus === "wont_fix" ? "wont_fix" : "pending",
     },
-    comments: [],
+    comments: similar
+      ? [
+          {
+            id: crypto.randomUUID(),
+            author: "IssueMate",
+            role: "ระบบตรวจเรื่องซ้ำ",
+            body: similar.note,
+            attachments: [],
+            reactions: {},
+            createdAt: now,
+          },
+        ]
+      : [],
     timeline: [timelineEvent],
     upvotes: 1,
     upvotedBy: [voterIdentity],
@@ -557,6 +671,52 @@ const STATUS_NAME_MAP: Record<IssueStatus, string> = {
   wont_fix: "6. ไม่แก้ (Won't Fix / Rejected)",
 };
 
+/**
+ * การเปลี่ยนสถานะที่ใช้ร่วมกันระหว่าง updateIssue และ addIssueComment:
+ * ปิด/เปิดเรื่อง, ล้างการอนุมัติ AI เมื่อเปิดเรื่องใหม่, และหมวดเหตุผลที่ไม่แก้ไข (บังคับเลือกทุกครั้งที่ปิดแบบไม่แก้ไข)
+ */
+function applyStatusChange(
+  existing: IssueRecord,
+  change: { status: IssueStatus; wontFixCategory?: unknown; keepApproval?: boolean; actor: string; now: string },
+  out: { updateFields: Partial<IssueRecord>; unsetFields: Record<string, "">; timeline: TimelineEvent[] }
+): void {
+  const { status, actor, now } = change;
+  const statusChanged = status !== existing.status;
+  const log = (action: string, detail: string) =>
+    out.timeline.push({ id: crypto.randomUUID(), actor, action, detail, createdAt: now });
+
+  let categoryNote = "";
+  if (status === "wont_fix") {
+    // ปิดรอบใหม่ต้องเลือกหมวดเสมอ; เรื่องที่ปิดอยู่แล้วเปลี่ยนหมวดได้
+    if (statusChanged || change.wontFixCategory !== undefined) {
+      const category = assertValidWontFixCategory(change.wontFixCategory);
+      categoryNote = ` — หมวด: ${WONT_FIX_CATEGORIES[category]}`;
+      if (category !== existing.wontFixCategory) {
+        out.updateFields.wontFixCategory = category;
+        if (!statusChanged) log("wont_fix_category_changed", `เปลี่ยนหมวดเหตุผลที่ไม่แก้ไขเป็น "${WONT_FIX_CATEGORIES[category]}"`);
+      }
+    }
+  } else if (existing.wontFixCategory) {
+    out.unsetFields.wontFixCategory = "";
+  }
+
+  if (!statusChanged) return;
+  out.updateFields.status = status;
+  if (TERMINAL_STATUSES.includes(status)) {
+    out.updateFields.closedAt = now;
+    out.updateFields.closedBy = actor;
+  } else if (TERMINAL_STATUSES.includes(existing.status)) {
+    out.unsetFields.closedAt = "";
+    out.unsetFields.closedBy = "";
+    // A reopened issue is a new round: the earlier AI approval no longer applies
+    if (existing.aiFixApproval && !change.keepApproval) {
+      out.unsetFields.aiFixApproval = "";
+      log("ai_fix_approval_reset", "เปิดเรื่องใหม่ — ต้องขออนุมัติให้ AI แก้ไขอีกครั้ง");
+    }
+  }
+  log(status === "deployed" ? "deployed" : "status_changed", `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[status]}${categoryNote}`);
+}
+
 export async function updateIssue(
   code: string,
   patch: {
@@ -584,6 +744,8 @@ export async function updateIssue(
     toggleUpvoteBy?: string;
     /** null = reset to pending. Callers must check approve permission; never set from MCP input. */
     aiFixApproval?: AiFixApproval | null;
+    /** บังคับเมื่อเปลี่ยนเป็น wont_fix; ส่งอย่างเดียว (ไม่มี status) = เปลี่ยนหมวดของเรื่องที่ปิดแบบไม่แก้ไขอยู่แล้ว */
+    wontFixCategory?: WontFixCategory;
   }
 ): Promise<IssueRecord> {
   const { issues } = await getCollections();
@@ -811,37 +973,18 @@ export async function updateIssue(
     }
   }
 
-  if (patch.status !== undefined) {
-    const validStatus = assertValidStatus(patch.status);
-    if (validStatus !== existing.status) {
-      updateFields.status = validStatus;
-      if (validStatus === "deployed" || validStatus === "wont_fix") {
-        updateFields.closedAt = now;
-        updateFields.closedBy = actor;
-      } else if (existing.status === "deployed" || existing.status === "wont_fix") {
-        unsetFields.closedAt = "";
-        unsetFields.closedBy = "";
-        // A reopened issue is a new round: the earlier AI approval no longer applies
-        if (existing.aiFixApproval && patch.aiFixApproval === undefined) {
-          unsetFields.aiFixApproval = "";
-          pushedTimeline.push({
-            id: crypto.randomUUID(),
-            actor,
-            action: "ai_fix_approval_reset",
-            detail: "เปิดเรื่องใหม่ — ต้องขออนุมัติให้ AI แก้ไขอีกครั้ง",
-            createdAt: now,
-          });
-        }
-      }
-
-      pushedTimeline.push({
-        id: crypto.randomUUID(),
+  if (patch.status !== undefined || patch.wontFixCategory !== undefined) {
+    applyStatusChange(
+      existing,
+      {
+        status: patch.status !== undefined ? assertValidStatus(patch.status) : existing.status,
+        wontFixCategory: patch.wontFixCategory,
+        keepApproval: patch.aiFixApproval !== undefined,
         actor,
-        action: validStatus === "deployed" ? "deployed" : "status_changed",
-        detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[validStatus] || validStatus}`,
-        createdAt: now,
-      });
-    }
+        now,
+      },
+      { updateFields, unsetFields, timeline: pushedTimeline }
+    );
   }
 
   const filterQuery: Filter<IssueRecord> = { code: normalized };
@@ -887,6 +1030,7 @@ export async function addIssueComment(
     attachments?: AttachmentItem[];
     isResolution?: boolean;
     nextStatus?: IssueStatus;
+    wontFixCategory?: WontFixCategory;
   }
 ): Promise<IssueRecord> {
   const { issues } = await getCollections();
@@ -935,22 +1079,12 @@ export async function addIssueComment(
     updatedAt: now,
   };
 
-  if (validNextStatus && validNextStatus !== existing.status) {
-    updateFields.status = validNextStatus;
-    if (validNextStatus === "deployed" || validNextStatus === "wont_fix") {
-      updateFields.closedAt = now;
-      updateFields.closedBy = author;
-    } else if (existing.status === "deployed" || existing.status === "wont_fix") {
-      unsetFields.closedAt = "";
-      unsetFields.closedBy = "";
-    }
-    pushedTimeline.push({
-      id: crypto.randomUUID(),
-      actor: author,
-      action: "status_changed",
-      detail: `เปลี่ยนสถานะเป็น ${STATUS_NAME_MAP[validNextStatus]}`,
-      createdAt: now,
-    });
+  if (validNextStatus) {
+    applyStatusChange(
+      existing,
+      { status: validNextStatus, wontFixCategory: input.wontFixCategory, actor: author, now },
+      { updateFields, unsetFields, timeline: pushedTimeline }
+    );
   }
 
   const updateDoc: Record<string, unknown> = { $set: updateFields };
@@ -1029,6 +1163,8 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     low: 0,
   };
 
+  const reporterMap = new Map<string, MonitorStats["reporterQuality"][number]>();
+
   const assigneeMap = new Map<
     string,
     { assignee: string; pendingReview: number; readyOrFixing: number; completed: number; total: number }
@@ -1105,6 +1241,16 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     else if (issue.status === "fixing") fixingIssues++;
     else if (issue.status === "deployed") deployedIssues++;
     else if (issue.status === "wont_fix") wontFixIssues++;
+
+    const reporterName = (issue.reporter || "").replace(/\s*[[<].*$/, "").trim() || "ไม่ระบุ";
+    const rq = reporterMap.get(reporterName) || { reporter: reporterName, total: 0, wontFix: 0, byCategory: {} };
+    rq.total++;
+    if (issue.status === "wont_fix") {
+      rq.wontFix++;
+      const cat = issue.wontFixCategory || "unspecified";
+      rq.byCategory[cat] = (rq.byCategory[cat] || 0) + 1;
+    }
+    reporterMap.set(reporterName, rq);
 
     if (!isTerminal && issue.priority === "critical") {
       criticalOpenCount++;
@@ -1205,6 +1351,7 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     byProject: Array.from(projectStatMap.values()),
     byType,
     byPriority,
+    reporterQuality: Array.from(reporterMap.values()).sort((a, b) => b.total - a.total).slice(0, 6),
     byAssignee: Array.from(assigneeMap.values()).sort((a, b) => b.total - a.total),
     recentActivities: recentActivities.slice(0, 25),
   };
