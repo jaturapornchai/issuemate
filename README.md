@@ -1,6 +1,6 @@
 # IssueMate DevOps — ระบบแจ้งปัญหา & ติดตามงานสำหรับ Antigravity, Claude Code และ Codex
 
-> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com) · **Version**: `v3.3.1` (แสดงเลขเวอร์ชันและวัน-เวลา Deploy ล่าสุดบนหน้าเว็บและ API `/api/auth/me`)
+> **Production URL**: [https://issue.dedezoom.com](https://issue.dedezoom.com) · **Version**: `v3.4.0` (แสดงเลขเวอร์ชันและวัน-เวลา Deploy ล่าสุดบนหน้าเว็บและ API `/api/auth/me`)
 
 ระบบบริหารจัดการปัญหา (Issue Tracker) และเชื่อมโยงระหว่าง **ผู้ใช้งานทั่วไป / Tester (Non-Tech)** กับ **ทีมนักพัฒนา & AI Agent (Antigravity, Claude Code, Codex)** บน **`https://issue.dedezoom.com`** ภายใต้แนวคิด **"Easy for Tester, Rich for Dev"** — ให้ผู้แจ้งปัญหาพิมพ์หรือพูดเหมือนคุยแชท วางภาพแคปหน้าจอด้วย `Ctrl+V` พร้อมวาดวงกลม/ลูกศร/เบลอข้อมูลสำคัญได้ทันที ขณะที่ระบบแอบเก็บข้อมูลอุปกรณ์และจัดโครงสร้างเป็น Issue ระดับมืออาชีพให้นักพัฒนาครบ 100%
 
@@ -39,7 +39,7 @@
 
 ---
 
-## ✨ จุดเด่นหลักของระบบ (Core Capabilities — `v3.3.1`)
+## ✨ จุดเด่นหลักของระบบ (Core Capabilities — `v3.4.0`)
 
 1. **การอนุมัติก่อนให้ AI แก้ไข (`Admin Approval Gate`) & โหมดอัตโนมัติรายโปรเจกต์ (`Per-Project Auto Mode`)**:
    - AI สามารถวิเคราะห์และรีวิว (`submit_claude_review`) ได้ทันที แต่จะแก้โค้ดหรือ Deploy (`claim_for_fix`, `mark_deployed`, เปลี่ยนสถานะเป็น `fixing`/`deployed`) ได้เฉพาะเรื่องที่ผู้ดูแลกด **"อนุมัติให้ AI แก้ไข"** หรือเมื่อโปรเจกต์เปิดสวิตช์ **"โหมดอัตโนมัติ"** เท่านั้น
