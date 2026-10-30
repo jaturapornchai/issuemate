@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // playwright-core reads browsers.json etc. at runtime, which file tracing misses (answer_question PDF)
+  outputFileTracingIncludes: {
+    "/api/mcp": ["./node_modules/playwright-core/**/*"],
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: "v3.6.0",
     NEXT_PUBLIC_DEPLOYED_AT_TH: `${thaiFormatted} น.`,
