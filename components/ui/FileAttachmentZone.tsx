@@ -682,10 +682,11 @@ export function AttachmentGallery({
                 {/* Inline Embedded PDF Viewer */}
                 {isPdf && isPdfOpen && (
                   <div data-testid={`inline-pdf-viewer-${idx}`} className="border-t border-line bg-black/40">
+                    {/* No sandbox: Chrome blocks its PDF viewer in sandboxed iframes. Safe because
+                        /api/files serves only whitelisted types inline (no HTML/SVG) with nosniff */}
                     <iframe
                       src={fileUrl(doc)}
                       title={doc.name}
-                      sandbox=""
                       data-testid={`inline-pdf-iframe-${idx}`}
                       className="h-[460px] w-full bg-white"
                     />

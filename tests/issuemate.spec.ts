@@ -1518,6 +1518,8 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(drawer.locator('[data-testid^="comment-resolution-badge-"]').first()).toBeVisible();
       await drawer.locator('[data-testid^="preview-pdf-inline-btn-"]').first().click();
       await expect(drawer.locator('[data-testid^="inline-pdf-iframe-"]').first()).toBeVisible();
+      // Chrome's PDF viewer refuses to load in any sandboxed iframe ("This page has been blocked by Chrome")
+      await expect(drawer.locator('[data-testid^="inline-pdf-iframe-"]').first()).not.toHaveAttribute("sandbox");
       expect(errors).toEqual([]);
     } finally {
       await request.post("/api/auth/me", {
