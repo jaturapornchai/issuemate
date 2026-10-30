@@ -38,5 +38,7 @@ export default defineConfig({
         url: "http://localhost:3300/api/auth/me",
         reuseExistingServer: true,
         timeout: 60000,
+        // answer_question renders PDFs with this Chromium (lib/answer-pdf.ts)
+        env: executablePath ? { PDF_CHROMIUM_PATH: executablePath } : undefined,
       },
 });

@@ -1018,7 +1018,7 @@ interface McpTokenPublic {
 }
 
 const MCP_TOOLS: Array<{ name: string; desc: string }> = [
-  { name: "get_ai_context", desc: "ดึงคิวรอรีวิว และคิวรอแก้/Deploy เฉพาะโปรเจกต์ที่ระบุ" },
+  { name: "get_ai_context", desc: "ดึงคิวรอรีวิว คิวรอแก้/Deploy และคิวคำถาม เฉพาะโปรเจกต์ที่ระบุ" },
   { name: "submit_claude_review", desc: "บันทึกผลวิเคราะห์: สั่งแก้ (ready_to_fix) หรือไม่แก้ (wont_fix)" },
   { name: "claim_for_fix", desc: "รับงานเข้าสู่สถานะกำลังแก้ (fixing) — เฉพาะเรื่องที่ผู้ดูแลอนุมัติแล้ว" },
   { name: "mark_deployed", desc: "บันทึกผลหลังแก้และ Deploy สำเร็จ (deployed)" },
@@ -1032,6 +1032,8 @@ const MCP_TOOLS: Array<{ name: string; desc: string }> = [
   { name: "converse_on_issue", desc: "ตอบกลับ แนบไฟล์ ติ๊กงานย่อย เปลี่ยนสถานะ" },
   { name: "update_issue_status", desc: "อัปเดตสถานะ ความสำคัญ หรือผู้รับผิดชอบ" },
   { name: "get_monitor_summary", desc: "สรุป KPI ของโปรเจกต์แบบเรียลไทม์" },
+  { name: "claim_question", desc: "รับคำถามจากคิวไปตอบ (กันตอบซ้ำ)" },
+  { name: "answer_question", desc: "ส่งคำตอบ ระบบสร้าง PDF ให้เองและปิดเรื่อง" },
 ];
 
 function CopyButton({

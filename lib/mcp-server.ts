@@ -16,6 +16,7 @@ import {
   assertValidWontFixCategory,
 } from "./issue-service";
 import { MAX_FILES_PER_REQUEST, uploadBufferToMinio } from "./minio";
+import { renderAnswerPdf } from "./answer-pdf";
 import type { AiFixApproval, AttachmentItem, IssueStatus, SubtaskItem, WontFixCategory } from "./types";
 import { WONT_FIX_CATEGORIES } from "./types";
 import {
@@ -188,7 +189,7 @@ export function createIssueMateMcpServer(
   // 1. get_ai_context
   server.tool(
     "get_ai_context",
-    "ดึงข้อมูลภาพรวมระบบ IssueMate ของโปรเจกต์ที่ระบุ (คิวรอ Antigravity รีวิว, คิวรอแก้และ Deploy, รายชื่อโปรเจกต์ และค่า Status/Type ที่ใช้ได้)",
+    "ดึงข้อมูลภาพรวมระบบ IssueMate ของโปรเจกต์ที่ระบุ (คิวรอ Antigravity รีวิว, คิวรอแก้และ Deploy, คิวคำถาม questionQueue, รายชื่อโปรเจกต์ และค่า Status/Type ที่ใช้ได้)",
     {
       projectKey: z
         .string()
@@ -198,10 +199,19 @@ export function createIssueMateMcpServer(
     async (args) => {
       const targetProj = resolveScopedProjectKey(args.projectKey);
       const scope = listScope(args.projectKey);
-      const [projects, stats, readyToFix] = await Promise.all([
+      const [projects, stats, readyToFix, questions] = await Promise.all([
         listProjects(),
         getMonitorStats(scope || "ALL"),
         listIssues({ projectKey: scope, status: "ready_to_fix", limit: 50 }),
+        // Oldest first: questions are answered in the order they were asked
+        listIssues({
+          projectKey: scope,
+          type: "question",
+          status: "pending_review",
+          sortBy: "createdAt",
+          sortDir: "asc",
+          limit: 50,
+        }),
       ]);
       const projectByKey = new Map(projects.map((p) => [p.key, p]));
       const filteredProjects = projects.filter(
@@ -229,6 +239,8 @@ export function createIssueMateMcpServer(
             "3. รอผู้ดูแล (Admin) อนุมัติให้ AI แก้ไขในหน้าเว็บ — ดู aiFixAllowed ใน readyToFixQueue (หรือโปรเจกต์เปิดโหมดอัตโนมัติ)",
             "4. เฉพาะเรื่องที่ aiFixAllowed = true เท่านั้น -> เรียก claim_for_fix (เปลี่ยนเป็น 'fixing') แล้วแก้โค้ด + ทดสอบ + Deploy จากนั้นเรียก mark_deployed (เปลี่ยนเป็น 'deployed')",
           ],
+          questionWorkflow:
+            "คำถาม (type='question') อยู่ใน questionQueue เรียงจากเก่าไปใหม่: เรื่องสถานะ 'open' ให้เรียก claim_question ก่อน (กันตอบซ้ำ) แล้วตรวจโค้ด/ข้อมูลจริงและเรียก answer_question — IssueMate สร้าง PDF คำตอบให้เองและปิดเรื่องเป็น 'deployed' ทันที เรื่องสถานะ 'reviewing' คือมีผู้รับไปตอบแล้ว (ดู assignee)",
           aiFixApprovalRule:
             "ห้ามแก้โค้ดหรือ Deploy เรื่องที่ยังไม่ได้รับอนุมัติจากผู้ดูแล (aiFixAllowed = false) — ระบบจะปฏิเสธ claim_for_fix / mark_deployed / การเปลี่ยนสถานะเป็น fixing หรือ deployed จนกว่าจะได้รับอนุมัติ เรื่องประเภทคำถาม (question) ตอบและปิดเรื่องได้โดยไม่ต้องรออนุมัติ เรื่องที่ผู้ดูแลกด 'ไม่อนุมัติ' ห้ามแก้แม้โปรเจกต์เปิดโหมดอัตโนมัติ",
           validValues: {
@@ -258,6 +270,14 @@ export function createIssueMateMcpServer(
             ...(perm.allowed ? {} : { blockedReason: perm.message }),
           };
         }),
+        questionQueue: questions.map((q) => ({
+          code: q.code,
+          title: q.title,
+          status: q.status,
+          assignee: q.assignee,
+          reporter: q.reporter,
+          createdAt: q.createdAt,
+        })),
         queues: {
           pendingReview: stats.openIssues + stats.reviewingIssues,
           pendingClaudeReview: stats.openIssues + stats.reviewingIssues,
@@ -1137,6 +1157,112 @@ export function createIssueMateMcpServer(
       const stats = await getMonitorStats(listScope(projectKey));
       return {
         content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
+      };
+    }
+  );
+
+  async function getQuestionOrThrow(code: string) {
+    const issue = await getIssueByCode(code);
+    if (!issue) throw new Error(`ไม่พบ Issue รหัส ${code}`);
+    if (issue.type !== "question") {
+      throw new Error(
+        `#${code} ไม่ใช่คำถาม (type="${issue.type}") — เรื่องประเภทอื่นใช้ submit_claude_review / claim_for_fix แทน`
+      );
+    }
+    return issue;
+  }
+
+  // 15. claim_question
+  server.tool(
+    "claim_question",
+    "รับคำถาม (type='question') จาก questionQueue ไปตอบ: เปลี่ยนสถานะ 'open' เป็น 'reviewing' แบบ Atomic กัน Agent ตอบคำถามเดียวกันซ้ำ แล้วเรียก answer_question เมื่อตอบเสร็จ",
+    {
+      projectKey: z.string().optional().describe("รหัสโปรเจกต์ เช่น SMLAIACC"),
+      code: z.string().describe("รหัสคำถาม เช่น SMLAIACC-12"),
+      agentName: z.string().default("Antigravity"),
+    },
+    async ({ projectKey, code, agentName }) => {
+      const normalized = await assertIssueBelongsToProject(code, projectKey, "change_status");
+      await getQuestionOrThrow(normalized);
+      const resolvedAgent = formatTokenActorIdentity(tokenUser, agentName);
+      const updated = await updateIssue(normalized, {
+        status: "reviewing",
+        expectedStatus: "open",
+        assignee: resolvedAgent,
+        actor: resolvedAgent,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
+      };
+    }
+  );
+
+  // 16. answer_question
+  server.tool(
+    "answer_question",
+    "ส่งคำตอบของคำถาม (type='question'): IssueMate สร้างไฟล์ PDF คำตอบภาษาไทยให้เอง แนบในคอมเมนต์คำตอบ แล้วปิดเรื่องเป็น 'deployed' ทันที (คำถามไม่ต้องรอผู้ดูแลอนุมัติ)",
+    {
+      projectKey: z.string().optional().describe("รหัสโปรเจกต์ เช่น SMLAIACC"),
+      code: z.string().describe("รหัสคำถาม เช่น SMLAIACC-12"),
+      agentName: z.string().default("Antigravity"),
+      answer: z
+        .string()
+        .describe("คำตอบฉบับเต็มเป็นข้อความธรรมดา (ขึ้นบรรทัดใหม่ได้) — ใช้เป็นทั้งเนื้อหา PDF และข้อความคอมเมนต์"),
+      files: z
+        .array(InlineFileSchema)
+        .optional()
+        .describe("ไฟล์ประกอบเพิ่มเติม เช่น รูปหน้าจอ (ไม่ต้องแนบ PDF คำตอบ ระบบสร้างให้เอง)"),
+    },
+    async (args) => {
+      const answer = args.answer.trim();
+      if (!answer) throw new Error("กรุณาระบุคำตอบ (answer)");
+      const normalized = await assertIssueBelongsToProject(args.code, args.projectKey, "change_status");
+      const question = await getQuestionOrThrow(normalized);
+      // ponytail: claim_question is the lock; two agents answering an unclaimed question at once both post
+      if (question.status !== "open" && question.status !== "reviewing") {
+        throw new Error(`คำถาม #${normalized} ปิดไปแล้ว (สถานะ "${question.status}")`);
+      }
+      // Questions are exempt today; going through the gate keeps answer_question bound by the same rule
+      await requireAiFixApproval(normalized, "deployed");
+
+      const agentName = formatTokenActorIdentity(tokenUser, args.agentName);
+      const pdf = await renderAnswerPdf(question, {
+        body: answer,
+        answeredBy: agentName,
+        answeredAt: new Date().toISOString(),
+      });
+      const pdfFile = await uploadBufferToMinio({
+        buffer: pdf,
+        filename: `answer-${normalized}.pdf`,
+        mimeType: "application/pdf",
+        uploadedBy: agentName,
+        uploaderEmail: tokenUser?.ownerEmail,
+      });
+      const extraFiles = await uploadInlineFiles(args.files, agentName, tokenUser?.ownerEmail);
+      const updated = await addIssueComment(normalized, {
+        author: agentName,
+        role: "Antigravity Agent",
+        body: answer,
+        attachments: [pdfFile, ...extraFiles],
+        isResolution: true,
+        nextStatus: "deployed",
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                status: "answered",
+                code: updated.code,
+                currentStatus: updated.status,
+                pdf: { name: pdfFile.name, url: pdfFile.url, size: pdfFile.size },
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
     }
   );

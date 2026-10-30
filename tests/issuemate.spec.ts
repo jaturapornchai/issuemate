@@ -1396,4 +1396,136 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
     }
   });
+
+  test("7. Question queue: ask -> queue -> claim + answer via MCP -> Thai PDF answer", async ({ page, request, baseURL }) => {
+    const projKey = `QQ${uniqueSuffix}`;
+    const askerEmail = `qq.asker.${uniqueSuffix}@gmail.com`;
+    const ASKER = as(askerEmail);
+    await request.post("/api/projects", {
+      headers: ADMIN,
+      data: { key: projKey, name: `โปรเจกต์คิวคำถาม ${projKey}`, color: "#8b5cf6" },
+    });
+    const addAsker = await request.post("/api/auth/me", {
+      headers: ADMIN,
+      data: {
+        action: "add_allowed_user",
+        email: askerEmail,
+        name: "พนักงานขาย (ถามได้อย่างเดียว)",
+        role: "member",
+        allowedProjects: [projKey],
+        defaultPermission: "question_only",
+        projectPermissions: { [projKey]: "question_only" },
+      },
+    });
+    expect(addAsker.status()).toBe(200);
+    const tokenRes = await request.post("/api/mcp/tokens", {
+      headers: ADMIN,
+      data: {
+        name: "Antigravity Q&A",
+        projectKey: projKey,
+        ownerEmail: TEST_ADMIN_EMAIL,
+        ownerName: "Super Admin",
+        agentRole: "antigravity_fixer",
+      },
+    });
+    expect(tokenRes.status()).toBe(201);
+    const tokenData = await tokenRes.json();
+    const token = tokenData.rawToken as string;
+    const mcp = (name: string, args: Record<string, unknown>) => mcpTool(request, token, projKey, name, args);
+    const resultText = (r: { json: { result: { content: Array<{ text: string }> } } }) =>
+      r.json.result.content[0].text;
+    const ask = async (title: string, description: string) => {
+      const res = await request.post("/api/issues", {
+        headers: ASKER,
+        data: { projectKey: projKey, title, description, type: "question", priority: "medium" },
+      });
+      expect(res.status()).toBe(201);
+      return (await res.json()).issue;
+    };
+    const getIssue = async (code: string) =>
+      (await (await request.get(`/api/issues/${code}`, { headers: ADMIN })).json()).issue;
+    const queueCodes = async () => {
+      const ctx = await mcp("get_ai_context", { projectKey: projKey });
+      return JSON.parse(resultText(ctx)).questionQueue.map((q: { code: string }) => q.code);
+    };
+
+    try {
+      // 7.1 Ask: questions enter the queue oldest first; other issue types stay out of it
+      const q1 = await ask("พิมพ์ใบกำกับภาษีเต็มรูปแบบซ้ำได้ไหม", "ลูกค้าขอใบกำกับภาษีฉบับใหม่ ต้องกดเมนูไหนครับ");
+      const q2 = await ask("ตั้งค่าเครื่องพิมพ์ใบเสร็จอย่างไร", "เครื่องพิมพ์ใหม่พิมพ์ภาษาไทยไม่ออก");
+      const bug = await request.post("/api/issues", {
+        headers: ADMIN,
+        data: { projectKey: projKey, title: "บั๊กที่ไม่ใช่คำถาม", type: "bug", priority: "low" },
+      });
+      const bugCode = (await bug.json()).issue.code;
+      expect(await queueCodes()).toEqual([q1.code, q2.code]);
+
+      // 7.2 Claim: only questions, only once
+      const claimBug = await mcp("claim_question", { code: bugCode, agentName: "Antigravity" });
+      expect(claimBug.json.result.isError).toBeTruthy();
+      expect(resultText(claimBug)).toContain("ไม่ใช่คำถาม");
+      const claim = await mcp("claim_question", { code: q1.code, agentName: "Antigravity" });
+      expect(claim.json.result.isError).toBeFalsy();
+      const claimed = await getIssue(q1.code);
+      expect(claimed.status).toBe("reviewing");
+      expect(claimed.assignee).toContain("Antigravity");
+      const claimAgain = await mcp("claim_question", { code: q1.code, agentName: "Antigravity อีกตัว" });
+      expect(claimAgain.json.result.isError).toBeTruthy();
+      const ctxQueue = JSON.parse(resultText(await mcp("get_ai_context", { projectKey: projKey }))).questionQueue;
+      expect(ctxQueue[0]).toMatchObject({ code: q1.code, status: "reviewing" });
+
+      // 7.3 Answer: IssueMate renders the PDF itself, attaches it and closes the question
+      const answerText =
+        "เข้าเมนู \"ขาย > ใบกำกับภาษี\" เลือกเลขที่เอกสาร แล้วกดปุ่ม พิมพ์ซ้ำ\nระบบจะพิมพ์คำว่า \"สำเนา\" กำกับให้อัตโนมัติ ที่นี่ น้ำ ปี่ ผู้ใหญ่ ซื้อ";
+      const empty = await mcp("answer_question", { code: q1.code, agentName: "Antigravity", answer: "   " });
+      expect(empty.json.result.isError).toBeTruthy();
+      const answered = await mcp("answer_question", { code: q1.code, agentName: "Antigravity", answer: answerText });
+      expect(answered.json.result.isError).toBeFalsy();
+      const answerResult = JSON.parse(resultText(answered));
+      expect(answerResult).toMatchObject({ status: "answered", code: q1.code, currentStatus: "deployed" });
+      expect(answerResult.pdf.name).toBe(`answer-${q1.code}.pdf`);
+
+      const closed = await getIssue(q1.code);
+      expect(closed.status).toBe("deployed");
+      const resolution = closed.comments.at(-1);
+      expect(resolution.isResolution).toBe(true);
+      expect(resolution.body).toBe(answerText);
+      expect(resolution.attachments).toHaveLength(1);
+      expect(resolution.attachments[0]).toMatchObject({ mimeType: "application/pdf", url: answerResult.pdf.url });
+
+      // The asker can download a real PDF
+      const pdfRes = await request.get(answerResult.pdf.url, { headers: ASKER });
+      expect(pdfRes.status()).toBe(200);
+      expect(pdfRes.headers()["content-type"]).toContain("application/pdf");
+      const pdfBuf = await pdfRes.body();
+      expect(pdfBuf.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(pdfBuf.toString("latin1")).toMatch(/\/Type\s*\/Page\b/);
+
+      // Closed questions leave the queue and cannot be answered twice
+      expect(await queueCodes()).toEqual([q2.code]);
+      const answerAgain = await mcp("answer_question", { code: q1.code, agentName: "Antigravity", answer: "ซ้ำ" });
+      expect(answerAgain.json.result.isError).toBeTruthy();
+      expect(resultText(answerAgain)).toContain("ปิดไปแล้ว");
+
+      // 7.4 UI: the asker opens the answer PDF inside IssueMate
+      const errors = watchErrors(page);
+      await loginBrowserAs(page, askerEmail, baseURL!);
+      await page.goto("/");
+      await page.getByTestId(`project-item-${projKey}`).click();
+      await page.getByTestId(`issue-row-${q1.code}`).click();
+      const drawer = page.getByTestId("issue-detail-drawer");
+      await expect(drawer).toBeVisible();
+      await expect(drawer.locator('[data-testid^="comment-resolution-badge-"]').first()).toBeVisible();
+      await drawer.locator('[data-testid^="preview-pdf-inline-btn-"]').first().click();
+      await expect(drawer.locator('[data-testid^="inline-pdf-iframe-"]').first()).toBeVisible();
+      expect(errors).toEqual([]);
+    } finally {
+      await request.post("/api/auth/me", {
+        headers: ADMIN,
+        data: { action: "remove_allowed_user", email: askerEmail },
+      });
+      await request.delete(`/api/mcp/tokens?id=${tokenData.token?.id}`, { headers: ADMIN });
+      await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
+    }
+  });
 });

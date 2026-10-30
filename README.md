@@ -65,6 +65,8 @@
 10. **ธีม Aurora + Motion Graphics** (`v3.5.0`):
    - พื้นหลังแสง aurora ม่วง-ฟ้าใต้พื้นผิวกระจกฝ้า (`app/globals.css`) และภาพเคลื่อนไหวชุดเดียวทั้งระบบใน `components/ui/Motion.tsx` (ไลบรารี `motion`): สลับมุมมองแบบจางและเลื่อน (`ViewSwitch`), รายการไล่ขึ้นทีละแถว (`rise`), ตัวเลข KPI นับขึ้น (`CountUp`), แท่งกราฟค่อยๆ ยืด (`GrowBar`)
    - ปิดภาพเคลื่อนไหวให้เองเมื่อเครื่องตั้ง "ลดการเคลื่อนไหว" (`MotionConfig reducedMotion="user"` และ `@media (prefers-reduced-motion: reduce)`)
+11. **คิวคำถาม + คำตอบเป็น PDF ภาษาไทยที่ IssueMate สร้างเอง (`Question Queue & PDF Answer`)**:
+   - คำถาม (`type="question"`) ที่ยังไม่ปิดเข้าคิว `questionQueue` ใน `get_ai_context` เรียงจากเก่าไปใหม่ Antigravity รับคำถามด้วย `claim_question` แล้วตอบด้วย `answer_question` — IssueMate แปลงคำตอบเป็น PDF ด้วย Chromium (สระ/วรรณยุกต์ไทยไม่ลอยไม่ซ้อน) แนบในคอมเมนต์คำตอบ และปิดเรื่องให้ทันที รายละเอียดดูหัวข้อ [คิวคำถาม & คำตอบ PDF](#-คิวคำถาม--คำตอบ-pdf-question-queue)
 
 ---
 
@@ -142,7 +144,7 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 4. แก้โค้ดได้เฉพาะเรื่องที่ `aiFixAllowed: true` (ผู้ดูแลกดอนุมัติให้ AI แก้ไขแล้ว หรือโปรเจกต์เปิดโหมดอัตโนมัติ):
    - เรื่องที่ยังไม่อนุมัติ (`aiFixAllowed: false` / `pending`) ให้รีวิวเสร็จแล้วรอผู้ดูแลอนุมัติ ห้ามแก้โค้ด
    - เรื่องที่ผู้ดูแลกด "ไม่อนุมัติ" (`rejected`) ห้ามแตะโค้ดเด็ดขาดแม้โปรเจกต์เปิดโหมดอัตโนมัติ
-   - เรื่องประเภทคำถาม (`type="question"`) สามารถตอบคำถามและปิดเรื่องได้โดยไม่ต้องรออนุมัติ
+   - เรื่องประเภทคำถาม (`type="question"`) ใน `questionQueue` ให้เรียก `claim_question` แล้วตอบด้วย `answer_question` (ระบบสร้าง PDF คำตอบและปิดเรื่องให้เอง ไม่ต้องรออนุมัติ)
 5. เรียก `claim_for_fix` เพื่อรับงานเข้าสู่สถานะกำลังแก้ (fixing) จากนั้นลงมือแก้ไขโค้ดในโปรเจกต์นี้ รันทดสอบให้ผ่านจริง และ Deploy ขึ้นเซิร์ฟเวอร์
 6. เมื่อแก้ไขและ Deploy เสร็จเรียบร้อยแล้ว ให้เรียก `mark_deployed` บันทึกผลการแก้ไขและผลการ Deploy กลับเข้า IssueMate ทันที
 ```
@@ -158,7 +160,7 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 ### 3. Prompt สำหรับสั่งแก้หรือตอบคำถาม Issue เฉพาะข้อ (เช่น `POS-12`)
 ```text
 ให้ใช้ MCP Server "issuemate" (ระบุ projectKey="POS") ดึงข้อมูล Issue รหัส POS-12 ด้วย `get_issue`:
-- หากเป็นคำถามการใช้งาน (`type="question"`) ให้ตรวจสอบโค้ดจริงแล้วตอบกลับอย่างละเอียดพร้อมแนบไฟล์/รูปภาพผ่าน `converse_on_issue` และเปลี่ยนสถานะเป็น `deployed`
+- หากเป็นคำถามการใช้งาน (`type="question"`) ให้เรียก `claim_question` ตรวจสอบโค้ดจริง แล้วส่งคำตอบอย่างละเอียดด้วย `answer_question` (แนบรูปเพิ่มได้ใน `files`) — IssueMate สร้าง PDF คำตอบและปิดเรื่องเป็น `deployed` ให้เอง
 - หากเป็นบั๊กหรือฟีเจอร์ ให้วิเคราะห์สาเหตุ บันทึก `submit_claude_review` -> ตรวจ `aiFixAllowed` (ถ้ายังไม่อนุมัติให้หยุดรอผู้ดูแล) -> `claim_for_fix` -> แก้ไขโค้ดและรันเทสต์ให้ผ่าน -> บันทึกผลด้วย `mark_deployed`
 ```
 
@@ -174,11 +176,34 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 - เรื่องที่อยู่สถานะ "กำลังแก้ไข" แต่ยังไม่มีการอนุมัติ (เช่น เริ่มแก้ก่อนอัปเกรดเป็น v3.3.0) จะขึ้นในปุ่ม **"รออนุมัติ N เรื่อง"** ด้วย — AI จะ `mark_deployed` ไม่ได้จนกว่าผู้ดูแลจะอนุมัติ
 - `get_ai_context` คืน `readyToFixQueue` พร้อม `aiFixAllowed` ของแต่ละเรื่อง และ `get_issue` คืน `aiFixAllowed` / `aiFixBlockedReason`
 
-## 🛠️ รายการ 14 MCP Tools ในระบบ (ล็อกตาม Project)
+## ❓ คิวคำถาม & คำตอบ PDF (Question Queue)
+
+- **เป้าหมาย**: ผู้ใช้ตั้งคำถามแล้วรอคำตอบในคิว Antigravity ดึงคิวไปตอบ และผู้ถามได้คำตอบเป็นไฟล์ PDF ภาษาไทยที่เปิดอ่านใน IssueMate ได้ทันที
+- **ขั้นตอน**:
+  1. ผู้ใช้ที่มีสิทธิ์สร้างเรื่อง (`question_only`, `reporter`, `developer`, `project_admin`) กดปุ่ม "ถามคำถาม" เรื่องจะเข้าสถานะ `open`
+  2. `get_ai_context` คืน `questionQueue` (คำถามสถานะ `open`/`reviewing` เรียงจากเก่าไปใหม่ สูงสุด 50 เรื่อง พร้อม `status` และ `assignee`) และ `guideForAi.questionWorkflow`
+  3. `claim_question` เปลี่ยน `open` → `reviewing` แบบ Atomic และบันทึกผู้รับเป็น `assignee` — ถ้ามี Agent รับไปก่อนแล้ว คำสั่งจะถูกปฏิเสธ
+  4. `answer_question` สร้าง PDF A4 (หัวเรื่อง, คำถาม, คำตอบ, ผู้ตอบ, วันเวลาไทย, เลขหน้า) อัปโหลดเข้า MinIO ชื่อ `answer-<รหัสเรื่อง>.pdf` แนบในคอมเมนต์คำตอบ (`isResolution`) แล้วปิดเรื่องเป็น `deployed`
+  5. ผู้ถามเปิดเรื่อง → กดดู PDF ในหน้าจอ (`Inline PDF Viewer`) หรือดาวน์โหลดได้
+- **การตั้งค่า**: `PDF_CHROMIUM_PATH` (ไม่บังคับ) = path ของ Chromium/Chrome ที่ใช้สร้าง PDF ถ้าไม่ตั้ง จะใช้ Chromium ที่ `playwright-core` ติดตั้งไว้
+- **Dependency**: `playwright-core` (ใช้ตอนรัน) และ Chromium บนเซิร์ฟเวอร์ — บน Ubuntu ติดตั้งด้วย `npx playwright-core install --with-deps chromium-headless-shell` ซึ่งลงฟอนต์ไทย `fonts-tlwg-loma-otf` ให้ด้วย
+- **ตัวอย่างการเรียก MCP**:
+```json
+{ "name": "claim_question", "arguments": { "projectKey": "POS", "code": "POS-12", "agentName": "Antigravity" } }
+{ "name": "answer_question", "arguments": { "projectKey": "POS", "code": "POS-12", "agentName": "Antigravity", "answer": "เข้าเมนู ขาย > ใบกำกับภาษี แล้วกดปุ่ม พิมพ์ซ้ำ" } }
+```
+  ผลลัพธ์ `answer_question`: `{ "status": "answered", "code": "POS-12", "currentStatus": "deployed", "pdf": { "name": "answer-POS-12.pdf", "url": "/api/files/...", "size": 51684 } }`
+- **ข้อจำกัด**:
+  - คำตอบเป็นข้อความธรรมดา (ขึ้นบรรทัดใหม่ได้ ไม่แปลง Markdown) เหมือนคอมเมนต์บนหน้าเว็บ
+  - สร้าง PDF ครั้งละหนึ่ง Chromium (เปิด-ปิดทุกคำตอบ) เหมาะกับคิวคำถามปริมาณปกติ
+  - ถ้าไม่ได้ `claim_question` ก่อน และมี Agent สองตัวตอบคำถามเดียวกันพร้อมกัน จะได้คำตอบสองชุด
+  - ฟอนต์ใน PDF ใช้ฟอนต์ไทยของเครื่องที่รัน (Windows: Leelawadee UI / Tahoma, Linux: Loma) หน้าตาจึงต่างจากฟอนต์บนเว็บเล็กน้อย
+
+## 🛠️ รายการ 16 MCP Tools ในระบบ (ล็อกตาม Project)
 
 | Tool Name | รายละเอียดการทำงาน |
 | :--- | :--- |
-| `get_ai_context` | ดึงคิวงานที่รอรีวิว (`open`/`reviewing`), คิวที่รอแก้ (`readyToFixQueue` พร้อม `aiFixAllowed`), สถานะ `projects[].aiAutoMode`, กฎ `guideForAi.aiFixApprovalRule` และยอดค้างอนุมัติ (`queues.awaitingAdminApproval` / `queues.fixingButNotApprovedForDeploy`) |
+| `get_ai_context` | ดึงคิวงานที่รอรีวิว (`open`/`reviewing`), คิวที่รอแก้ (`readyToFixQueue` พร้อม `aiFixAllowed`), คิวคำถาม (`questionQueue` เรียงจากเก่าไปใหม่), สถานะ `projects[].aiAutoMode`, กฎ `guideForAi.aiFixApprovalRule` และยอดค้างอนุมัติ (`queues.awaitingAdminApproval` / `queues.fixingButNotApprovedForDeploy`) |
 | `list_projects` | แสดงรายการโปรเจกต์ที่ Token นี้มีสิทธิ์เข้าถึง พร้อมจำนวน Issue คงค้างและสถานะโหมดอัตโนมัติ |
 | `create_project` | สร้างโปรเจกต์ใหม่ (มี Confirmation Gate บังคับถามยืนยันผู้ใช้ก่อนด้วย `confirmedByUser: true`) |
 | `list_issues` | ค้นหาและกรองรายการ Issue ตามโปรเจกต์ สถานะ ประเภท และความสำคัญ |
@@ -192,6 +217,8 @@ http_headers = { "Authorization" = "Bearer ism_live_YOUR_GENERATED_TOKEN", "X-MC
 | `converse_on_issue` | ตอบคอมเมนต์ แนบไฟล์ PDF/รูปภาพประกอบ ติ๊กถูกงานย่อย กดรีแอคชัน และเปลี่ยนสถานะ (เรื่อง `question` ปิดเป็น `deployed` ได้ทันที; ปิดเป็น `wont_fix` ต้องระบุ `wontFixCategory`) |
 | `update_issue_status` | อัปเดตสถานะของ Issue ตามขั้นตอนใน Pipeline พร้อมบันทึกหมายเหตุ (ตรวจการอนุมัติหากเปลี่ยนเข้า `fixing`/`deployed`; ปิดเป็น `wont_fix` ต้องระบุ `wontFixCategory`) |
 | `get_monitor_summary` | ดึงสรุปสถิติ KPI ของ Pipeline แบบเรียลไทม์ (รวม `awaitingAiApprovalCount`, `awaitingAiApprovalFixingCount` และคุณภาพเรื่องรายผู้แจ้ง `reporterQuality`) |
+| `claim_question` | รับคำถาม (`type="question"`) จากคิว เปลี่ยน `open` → `reviewing` แบบ Atomic กัน Agent ตอบซ้ำ |
+| `answer_question` | ส่งคำตอบ: IssueMate สร้าง PDF ภาษาไทยด้วย Chromium แนบในคอมเมนต์คำตอบ และปิดเรื่องเป็น `deployed` ทันที |
 
 ---
 
@@ -208,6 +235,7 @@ cp .env.example .env.local
 npm install
 npm run dev
 ```
+`answer_question` ต้องมี Chromium สำหรับสร้าง PDF: ติดตั้งด้วย `npx playwright-core install chromium-headless-shell` (บน Linux เพิ่ม `--with-deps`) หรือตั้ง `PDF_CHROMIUM_PATH` ชี้ไปยัง Chromium/Chrome ที่มีอยู่ — `npx playwright test` ส่ง path ของ Chromium ที่ใช้รันเทสต์ให้ dev server เอง
 
 ### 3. คำสั่งตรวจสอบและทดสอบระบบ (Verification & E2E Tests)
 ```bash

@@ -98,6 +98,8 @@ export async function GET() {
       "converse_on_issue",
       "update_issue_status",
       "get_monitor_summary",
+      "claim_question",
+      "answer_question",
     ],
   });
 }
