@@ -246,6 +246,8 @@ export function CreateIssueModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<IssueType>(initialType || "bug");
+  // "bug" is only the default, so the formatter may still guess; Ask/Idea buttons or a type pill are a real pick
+  const [typePicked, setTypePicked] = useState(false);
   const [priority, setPriority] = useState<IssuePriority>("high");
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
@@ -286,6 +288,7 @@ export function CreateIssueModal({
     }
     if (initialType) {
       setType(initialType);
+      setTypePicked(initialType !== "bug");
     }
   }, [defaultProjectKey, projects, open, initialType]);
 
@@ -405,6 +408,7 @@ export function CreateIssueModal({
           clarificationAnswer: extraAnswer,
           projectKey,
           forceCreate,
+          type: isQuestionOnly ? "question" : typePicked ? type : undefined,
         }),
       });
       const data = (await res.json()) as QaAssistantResponse & { error?: string };
@@ -630,7 +634,11 @@ export function CreateIssueModal({
                     disabled={disabled}
                     aria-pressed={isSelected}
                     data-testid={`quick-type-pill-${t}`}
-                    onClick={() => !disabled && setType(t)}
+                    onClick={() => {
+                      if (disabled) return;
+                      setType(t);
+                      setTypePicked(true);
+                    }}
                     className={`${spanClass} flex cursor-pointer flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-35 ${
                       isSelected
                         ? "border-brand-400/50 bg-brand-400/[0.07] ring-1 ring-brand-400/30 ring-inset"

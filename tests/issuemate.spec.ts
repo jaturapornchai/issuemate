@@ -1528,4 +1528,82 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
     }
   });
+
+  test("8. Issue type: the reporter's pick beats the AI guess, and the guess covers real wording", async ({ page, request, baseURL }) => {
+    const projKey = `TY${uniqueSuffix}`;
+    const askerEmail = `ty.asker.${uniqueSuffix}@gmail.com`;
+    await request.post("/api/projects", {
+      headers: ADMIN,
+      data: { key: projKey, name: `โปรเจกต์ประเภทเรื่อง ${projKey}`, color: "#0ea5e9" },
+    });
+    const addAsker = await request.post("/api/auth/me", {
+      headers: ADMIN,
+      data: {
+        action: "add_allowed_user",
+        email: askerEmail,
+        name: "พนักงานบัญชี (ถามได้อย่างเดียว)",
+        role: "member",
+        allowedProjects: [projKey],
+        defaultPermission: "question_only",
+        projectPermissions: { [projKey]: "question_only" },
+      },
+    });
+    expect(addAsker.status()).toBe(200);
+    const format = (data: Record<string, unknown>) =>
+      request.post("/api/ai/format-issue", { headers: ADMIN, data: { projectKey: projKey, ...data } });
+
+    try {
+      // 8.1 Nothing picked: wording from real SMLAIACC reports is guessed right; broken-sounding text stays a bug
+      const guesses: Array<[string, string]> = [
+        ["ถ้ามี Tab > 1 ให้มีปุ่ม ปิด Tab ทั้งหมด", "feature"],
+        ["รวมเป็นเมนูเดียว ออกแบบให้ด้วย", "feature"],
+        ["ถ้า input เป็น combobox น้อยกว่า 10 ข้อเลือก ให้เป็น radio", "feature"],
+        ["ขอสูตรคำนวณต้นทุนเฉลี่ย ทำอย่างไร", "question"],
+        ["ขอ query รายงานยอดขายรายเดือน", "question"],
+        ["ตั้งราคาให้เป็น 0 แล้วยอดรวมคำนวณผิด", "bug"],
+      ];
+      for (const [text, expected] of guesses) {
+        const res = await format({ text });
+        expect(res.status()).toBe(200);
+        expect((await res.json()).issue.inferredType, text).toBe(expected);
+      }
+
+      // 8.2 A picked type wins; title prefix, priority and labels follow it
+      const pickedRes = await format({ text: "หน้าจอออกใบกำกับภาษี กดปุ่มบันทึกแล้วยอด VAT คำนวณผิด", type: "question" });
+      expect(pickedRes.status()).toBe(200);
+      const picked = (await pickedRes.json()).issue;
+      expect(picked.inferredType).toBe("question");
+      expect(picked.title).toContain("[Question]");
+      expect(picked.inferredPriority).toBe("low");
+      expect(picked.labels).toContain("question");
+      expect((await format({ text: "ทดสอบประเภทเรื่องที่ไม่มีอยู่จริง", type: "nonsense" })).status()).toBe(400);
+
+      // 8.3 UI: "ถามคำถาม" + text the guesser calls a bug -> saved as a question (developer and question_only)
+      const errors = watchErrors(page);
+      const uiCases: Array<[string, string]> = [
+        [TEST_ADMIN_EMAIL, "ขอสูตรคำนวณต้นทุนเฉลี่ย ทำอย่างไร ยอดในรายงานดูผิด"],
+        [askerEmail, "ขอ query รายงานยอดขาย ตอนนี้เปิดรายงานเองไม่ได้"],
+      ];
+      for (const [email, text] of uiCases) {
+        await loginBrowserAs(page, email, baseURL!);
+        await page.goto("/");
+        await page.getByTestId(`project-item-${projKey}`).click();
+        await page.getByTestId("quick-ask-question-btn").click();
+        await page.getByTestId("chat-issue-input").fill(text);
+        await page.getByTestId("submit-create-issue-btn").click();
+        await expect(page.getByTestId("chat-issue-input")).toHaveCount(0);
+        const { issues } = await (await request.get(`/api/issues?projectKey=${projKey}`, { headers: ADMIN })).json();
+        const saved = issues.find((i: { title: string }) => i.title.includes(text.slice(0, 20)));
+        expect(saved, text).toMatchObject({ type: "question", priority: "low" });
+        expect(saved.title.startsWith("[Question]"), saved.title).toBe(true);
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await request.post("/api/auth/me", {
+        headers: ADMIN,
+        data: { action: "remove_allowed_user", email: askerEmail },
+      });
+      await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
+    }
+  });
 });

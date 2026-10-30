@@ -164,6 +164,8 @@ export function analyzeAndFormatQaIssue(input: {
   clarificationAnswer?: string;
   projectKey?: string;
   forceCreate?: boolean;
+  /** Type the reporter picked (Ask/Idea buttons, a type pill, question_only); skips guessing */
+  type?: IssueType;
 }): QaAssistantResponse {
   const raw = normalizeText(input.rawText || "");
   const extra = normalizeText(input.clarificationAnswer || "");
@@ -177,16 +179,20 @@ export function analyzeAndFormatQaIssue(input: {
   const lower = combinedText.toLowerCase();
 
   // Infer type
+  const looksBroken = /(พัง|ไม่ได้|ผิด|ค้าง|error)/i.test(combinedText);
   let inferredType: IssueType = "bug";
-  if (
+  if (input.type) {
+    inferredType = input.type;
+  } else if (
     /(อยากให้มี|ขอเพิ่ม|เสนอแนะ|ปรับปรุง|น่าจะมี|เพิ่มปุ่ม|เพิ่มฟีเจอร์|feature|request|อยากได้)/i.test(
       combinedText
-    )
+    ) ||
+    (!looksBroken && /(ให้มี|ออกแบบให้|รวมเป็น|ให้เป็น|เปลี่ยนเป็น)/.test(combinedText))
   ) {
     inferredType = "feature";
   } else if (
-    /(สอบถาม|ถามหน่อย|ทำยังไง|วิธีใช้|อยู่ตรงไหน|คืออะไร|\?$)/i.test(combinedText) &&
-    !/(พัง|ไม่ได้|ผิด|ค้าง|error)/i.test(combinedText)
+    /(สอบถาม|ถามหน่อย|ยังไง|อย่างไร|ขอสูตร|ขอ\s*query|วิธีใช้|อยู่ตรงไหน|คืออะไร|\?$)/i.test(combinedText) &&
+    !looksBroken
   ) {
     inferredType = "question";
   } else if (/(ล่ม|เข้าเว็บไม่ได้เลย|500|502|ข้อมูลหาย|ทั้งระบบ)/i.test(combinedText)) {

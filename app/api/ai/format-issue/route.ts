@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertCsrfSafe, authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { assertValidType } from "@/lib/issue-service";
 import { analyzeAndFormatQaIssue } from "@/lib/qa-assistant";
 
 export const runtime = "nodejs";
@@ -19,6 +20,7 @@ export async function POST(req: Request) {
       : undefined;
     const projectKey = body.projectKey ? String(body.projectKey).trim() : undefined;
     const forceCreate = Boolean(body.forceCreate);
+    const type = body.type ? assertValidType(body.type) : undefined;
 
     if (!rawText) {
       return NextResponse.json(
@@ -32,6 +34,7 @@ export async function POST(req: Request) {
       clarificationAnswer,
       projectKey,
       forceCreate,
+      type,
     });
 
     return NextResponse.json(formatted);
