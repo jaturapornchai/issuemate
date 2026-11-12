@@ -910,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.1");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.2");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1590,6 +1590,21 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
         await loginBrowserAs(page, email, baseURL!);
         await page.goto("/");
         await page.getByTestId(`project-item-${projKey}`).click();
+        if (email === TEST_ADMIN_EMAIL) {
+          // Regression: picking a type pill must not reset back to "bug" when background refresh updates projects
+          await page.getByTestId("new-issue-btn").click();
+          await expect(page.getByTestId("quick-type-pill-bug")).toHaveAttribute("aria-pressed", "true");
+          await page.getByTestId("quick-type-pill-feature").click();
+          await expect(page.getByTestId("quick-type-pill-feature")).toHaveAttribute("aria-pressed", "true");
+          const refreshProjects = page.waitForResponse(
+            (res) => res.url().includes("/api/projects") && res.request().method() === "GET"
+          );
+          await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+          await refreshProjects;
+          await expect(page.getByTestId("quick-type-pill-feature")).toHaveAttribute("aria-pressed", "true");
+          await expect(page.getByTestId("quick-type-pill-bug")).toHaveAttribute("aria-pressed", "false");
+          await page.getByTestId("close-create-issue-modal-btn").click();
+        }
         await page.getByTestId("quick-ask-question-btn").click();
         await page.getByTestId("chat-issue-input").fill(text);
         await page.getByTestId("submit-create-issue-btn").click();

@@ -281,16 +281,19 @@ export function CreateIssueModal({
       return;
     }
     setCapturedEnv(captureBrowserEnvironment());
+    const nextType = initialType || "bug";
+    setType(nextType);
+    setTypePicked(nextType !== "bug");
+  }, [open, initialType]);
+
+  useEffect(() => {
+    if (!open) return;
     if (defaultProjectKey && defaultProjectKey !== "ALL") {
       setProjectKey(defaultProjectKey);
     } else if (projects.length > 0 && (!projectKey || projectKey === "ALL")) {
       setProjectKey(projects[0].key);
     }
-    if (initialType) {
-      setType(initialType);
-      setTypePicked(initialType !== "bug");
-    }
-  }, [defaultProjectKey, projects, open, initialType]);
+  }, [open, defaultProjectKey, projects, projectKey]);
 
   useEffect(() => {
     if (isQuestionOnly && type !== "question") {
@@ -1113,12 +1116,13 @@ export function AiMcpGuideModal({
   }, [currentUserEmail, currentUserName]);
 
   useEffect(() => {
+    if (!open) return;
     if (defaultProjectKey && defaultProjectKey !== "ALL") {
       setSelectedProjectKey(defaultProjectKey);
     } else if (propProjects && propProjects.length > 0 && !selectedProjectKey) {
       setSelectedProjectKey(propProjects[0].key);
     }
-  }, [defaultProjectKey, propProjects, selectedProjectKey]);
+  }, [open, defaultProjectKey]);
 
   const loadTokens = async () => {
     try {
