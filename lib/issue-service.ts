@@ -342,10 +342,13 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
     const autoKeys = await listAutoApproveProjectKeys();
     const awaiting: Filter<IssueRecord>[] = [
       { status: { $in: ["ready_to_fix", "fixing"] } },
-      { type: { $ne: "question" } },
       { "aiFixApproval.status": { $nin: ["approved", "rejected"] } },
     ];
-    if (autoKeys.length > 0) awaiting.push({ projectKey: { $nin: autoKeys } });
+    if (autoKeys.length > 0) {
+      awaiting.push({
+        $or: [{ type: "question" }, { projectKey: { $nin: autoKeys } }],
+      });
+    }
     query.$and = [...(query.$and || []), ...awaiting];
   }
 
@@ -1222,9 +1225,8 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
       aiApprovedActiveCount++;
     } else if (
       (issue.status === "ready_to_fix" || issue.status === "fixing") &&
-      issue.type !== "question" &&
       approvalStatus !== "rejected" &&
-      !autoApproveKeys.has(issue.projectKey)
+      (issue.type === "question" || !autoApproveKeys.has(issue.projectKey))
     ) {
       awaitingAiApprovalCount++;
       if (issue.status === "fixing") awaitingAiApprovalFixingCount++;

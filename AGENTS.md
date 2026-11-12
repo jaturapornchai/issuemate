@@ -14,7 +14,7 @@
 6. `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected — รีวิวแล้วตัดสินใจไม่แก้ พร้อม `reviewReason`)** — ต้องระบุหมวด `wontFixCategory` ทุกครั้ง (`WONT_FIX_CATEGORIES` ใน `lib/types.ts`) ทั้ง MCP และหน้าเว็บ; ตรวจที่ `applyStatusChange` ใน `lib/issue-service.ts`
 
 ## การอนุมัติก่อนให้ AI แก้ไข (Admin Approval Gate)
-- กฎทั้งหมดอยู่ใน `lib/ai-approval.ts` (ใช้ร่วมกันทั้ง MCP และ UI): สถานะ `fixing`/`deployed` ผ่าน MCP ต้องได้รับอนุมัติ, การ "ไม่อนุมัติ" ชนะโหมดอัตโนมัติเสมอ, เรื่องประเภท `question` ไม่ต้องอนุมัติ
+- กฎทั้งหมดอยู่ใน `lib/ai-approval.ts` (ใช้ร่วมกันทั้ง MCP และ UI): สถานะ `fixing`/`deployed` ผ่าน MCP ต้องได้รับอนุมัติ, การ "ไม่อนุมัติ" ชนะโหมดอัตโนมัติเสมอ, เรื่องประเภท `question` ให้ตอบคำถามอย่างเดียว (ปิดเป็น `deployed` ตอนตอบคำถามปกติได้โดยไม่ต้องรออนุมัติ แต่ถ้าตรวจพบบั๊กจากคำถาม ให้ส่ง `foundBug: true` ใน `answer_question` เพื่อตอบผู้ถามพร้อม PDF และตั้งเรื่องเป็น `ready_to_fix` รอผู้ดูแลกดอนุมัติในหน้าเว็บก่อนเสมอ ห้ามแก้โค้ดเองทันทีแม้เปิดโหมดอัตโนมัติ)
 - อนุมัติได้เฉพาะ Admin / `project_admin` ผ่านหน้าเว็บ (`PATCH /api/issues/[code]` ด้วย `aiFixApproval`, `PATCH /api/projects` ด้วย `aiAutoApproval`) — ห้ามเพิ่มช่องทางอนุมัติผ่าน MCP
 - ทุก MCP tool ที่พาเรื่องเข้า `fixing`/`deployed` ต้องเรียก `requireAiFixApproval` ใน `lib/mcp-server.ts`
 

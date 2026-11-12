@@ -356,10 +356,11 @@ export function listApprovalChipState(
   issue: { status: IssueStatus; type: IssueType; aiFixApproval?: { status?: string } },
   projectAutoMode: boolean
 ): AiApprovalDisplay | null {
-  if (issue.type === "question" || issue.status === "deployed" || issue.status === "wont_fix") return null;
+  if (issue.status === "deployed" || issue.status === "wont_fix") return null;
   const decided = issue.aiFixApproval?.status;
   if (decided === "approved" || decided === "rejected") return decided;
   if (issue.status !== "ready_to_fix" && issue.status !== "fixing") return null;
+  if (issue.type === "question") return "pending";
   return projectAutoMode ? "auto" : "pending";
 }
 

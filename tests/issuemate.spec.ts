@@ -910,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.2");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.3");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1507,7 +1507,78 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       expect(answerAgain.json.result.isError).toBeTruthy();
       expect(resultText(answerAgain)).toContain("ปิดไปแล้ว");
 
-      // 7.4 UI: the asker opens the answer PDF inside IssueMate
+      // 7.4 When AI discovers a bug while investigating a question:
+      // - AI cannot skip answering the user via submit_claude_review(decision="fix")
+      const skipAnswer = await mcp("submit_claude_review", {
+        code: q2.code,
+        decision: "fix",
+        reviewReason: "เจอที่พัง",
+        fixInstructions: "แก้โค้ด",
+      });
+      expect(skipAnswer.json.result.isError).toBeTruthy();
+      expect(resultText(skipAnswer)).toContain("answer_question");
+
+      // - AI claims the question and calls answer_question with foundBug=true:
+      //   user still gets the Thai PDF answer, AND the question stays in ready_to_fix awaiting admin approval
+      await mcp("claim_question", { code: q2.code, agentName: "Antigravity" });
+      const bugAnswer = await mcp("answer_question", {
+        code: q2.code,
+        agentName: "Antigravity",
+        answer: "เบื้องต้นให้เลือกฟอนต์ Tahoma ในตั้งค่าเครื่องพิมพ์ครับ ทั้งนี้พบว่าหน้าตั้งค่าบันทึก encoding ผิด กำลังส่งเรื่องขออนุมัติแก้ไขให้ครับ",
+        foundBug: true,
+        reviewReason: "ฟังก์ชัน savePrinterConfig บันทึก encoding เป็น latin1 แทน utf8",
+        fixInstructions: "แก้ encoding ใน lib/printer.ts เป็น utf8",
+        targetFiles: ["lib/printer.ts"],
+      });
+      expect(bugAnswer.json.result.isError).toBeFalsy();
+      const bugAnswerData = JSON.parse(resultText(bugAnswer));
+      expect(bugAnswerData).toMatchObject({
+        status: "answered_and_queued_for_approval",
+        code: q2.code,
+        currentStatus: "ready_to_fix",
+        aiFixAllowed: false,
+        approval: "pending",
+      });
+      expect(bugAnswerData.pdf.name).toBe(`answer-${q2.code}.pdf`);
+
+      const q2AfterAnswer = await getIssue(q2.code);
+      expect(q2AfterAnswer.status).toBe("ready_to_fix");
+      expect(q2AfterAnswer.reviewMeta).toMatchObject({
+        decision: "fix",
+        reviewReason: "ฟังก์ชัน savePrinterConfig บันทึก encoding เป็น latin1 แทน utf8",
+        fixInstructions: "แก้ encoding ใน lib/printer.ts เป็น utf8",
+        targetFiles: ["lib/printer.ts"],
+      });
+      expect(q2AfterAnswer.comments.at(-1).attachments[0].url).toBe(bugAnswerData.pdf.url);
+
+      // Even if project auto mode is enabled, a bug discovered from a question must wait for explicit admin approval
+      await request.patch("/api/projects", { headers: ADMIN, data: { key: projKey, aiAutoApproval: true } });
+      const blockedClaim = await mcp("claim_for_fix", { code: q2.code, agentName: "Antigravity" });
+      expect(blockedClaim.json.result.isError).toBeTruthy();
+      expect(resultText(blockedClaim)).toContain("หมวดคำถาม");
+
+      const awaitingQ = await (
+        await request.get(`/api/issues?projectKey=${projKey}&aiApproval=awaiting`, { headers: ADMIN })
+      ).json();
+      expect(awaitingQ.issues.map((i: { code: string }) => i.code)).toContain(q2.code);
+
+      // Once admin explicitly approves the question for fix, AI can claim and deploy it
+      const approveQ2 = await request.patch(`/api/issues/${q2.code}`, {
+        headers: ADMIN,
+        data: { aiFixApproval: { status: "approved", note: "อนุมัติให้แก้บั๊ก encoding จากคำถามนี้" } },
+      });
+      expect(approveQ2.status()).toBe(200);
+      const claimQ2 = await mcp("claim_for_fix", { code: q2.code, agentName: "Antigravity" });
+      expect(claimQ2.json.result.isError).toBeFalsy();
+      const deployQ2 = await mcp("mark_deployed", {
+        code: q2.code,
+        agentName: "Antigravity",
+        deployResult: "แก้ encoding เป็น utf8 และทดสอบผ่านแล้ว",
+      });
+      expect(deployQ2.json.result.isError).toBeFalsy();
+      expect((await getIssue(q2.code)).status).toBe("deployed");
+
+      // 7.5 UI: the asker opens the answer PDF inside IssueMate
       const errors = watchErrors(page);
       await loginBrowserAs(page, askerEmail, baseURL!);
       await page.goto("/");

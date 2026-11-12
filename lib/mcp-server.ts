@@ -240,9 +240,9 @@ export function createIssueMateMcpServer(
             "4. เฉพาะเรื่องที่ aiFixAllowed = true เท่านั้น -> เรียก claim_for_fix (เปลี่ยนเป็น 'fixing') แล้วแก้โค้ด + ทดสอบ + Deploy จากนั้นเรียก mark_deployed (เปลี่ยนเป็น 'deployed')",
           ],
           questionWorkflow:
-            "คำถาม (type='question') อยู่ใน questionQueue เรียงจากเก่าไปใหม่: เรื่องสถานะ 'open' ให้เรียก claim_question ก่อน (กันตอบซ้ำ) แล้วตรวจโค้ด/ข้อมูลจริงและเรียก answer_question — IssueMate สร้าง PDF คำตอบให้เองและปิดเรื่องเป็น 'deployed' ทันที เรื่องสถานะ 'reviewing' คือมีผู้รับไปตอบแล้ว (ดู assignee)",
+            "คำถาม (type='question') อยู่ใน questionQueue เรียงจากเก่าไปใหม่: เรื่องสถานะ 'open' ให้เรียก claim_question ก่อน (กันตอบซ้ำ) แล้วตรวจโค้ด/ข้อมูลจริงและเรียก answer_question เพื่อตอบคำถามอย่างเดียว (ห้ามแก้โค้ดเองเด็ดขาด) — หากไม่พบบั๊ก ระบบจะสร้าง PDF คำตอบและปิดเรื่องเป็น 'deployed' ทันที แต่หากตรวจคำถามแล้วพบบั๊กในระบบ ให้เรียก answer_question โดยใส่คำตอบให้ผู้ถามใน answer พร้อมส่ง foundBug: true, reviewReason, fixInstructions และ targetFiles ระบบจะส่งคำตอบพร้อม PDF ให้ผู้ถามและตั้งสถานะเรื่องเป็น 'ready_to_fix' ทิ้งไว้รอผู้ดูแลกดอนุมัติแก้ไข",
           aiFixApprovalRule:
-            "ห้ามแก้โค้ดหรือ Deploy เรื่องที่ยังไม่ได้รับอนุมัติจากผู้ดูแล (aiFixAllowed = false) — ระบบจะปฏิเสธ claim_for_fix / mark_deployed / การเปลี่ยนสถานะเป็น fixing หรือ deployed จนกว่าจะได้รับอนุมัติ เรื่องประเภทคำถาม (question) ตอบและปิดเรื่องได้โดยไม่ต้องรออนุมัติ เรื่องที่ผู้ดูแลกด 'ไม่อนุมัติ' ห้ามแก้แม้โปรเจกต์เปิดโหมดอัตโนมัติ",
+            "ห้ามแก้โค้ดหรือ Deploy เรื่องที่ยังไม่ได้รับอนุมัติจากผู้ดูแล (aiFixAllowed = false) — ระบบจะปฏิเสธ claim_for_fix / mark_deployed / การเปลี่ยนสถานะเป็น fixing หรือ deployed จนกว่าจะได้รับอนุมัติ เรื่องประเภทคำถาม (question) ให้ตอบคำถามผู้ใช้อย่างเดียว หากพบบั๊กจากคำถามต้องตั้งเป็น ready_to_fix รอผู้ดูแลกดอนุมัติในหน้าเว็บก่อนเสมอ (ไม่แก้เองแม้เปิดโหมดอัตโนมัติ) เรื่องที่ผู้ดูแลกด 'ไม่อนุมัติ' ห้ามแก้แม้โปรเจกต์เปิดโหมดอัตโนมัติ",
           validValues: {
             status: ["open", "reviewing", "ready_to_fix", "fixing", "deployed", "wont_fix"],
             type: ["question", "incident", "bug", "deployment", "performance", "security", "feature"],
@@ -337,6 +337,16 @@ export function createIssueMateMcpServer(
     },
     async (args) => {
       const code = await assertIssueBelongsToProject(args.code, args.projectKey, "change_status");
+      const existing = await getIssueByCode(code);
+      if (
+        existing?.type === "question" &&
+        args.decision === "fix" &&
+        (existing.comments || []).length === 0
+      ) {
+        throw new Error(
+          `#${code} เป็นหมวดคำถาม (type="question") — กรุณาเรียก answer_question เพื่อตอบผู้ถามพร้อมสร้างไฟล์ PDF ก่อน (ส่ง foundBug: true, reviewReason และ fixInstructions ใน answer_question เพื่อตั้งสถานะเป็น ready_to_fix รอผู้ดูแลอนุมัติ โดยห้ามตั้งรอแก้โดยยังไม่ตอบผู้ถาม)`
+        );
+      }
       const reviewer = formatTokenActorIdentity(
         tokenUser,
         args.reviewedBy || "Antigravity"
@@ -1200,18 +1210,43 @@ export function createIssueMateMcpServer(
   // 16. answer_question
   server.tool(
     "answer_question",
-    "ส่งคำตอบของคำถาม (type='question'): IssueMate สร้างไฟล์ PDF คำตอบภาษาไทยให้เอง แนบในคอมเมนต์คำตอบ แล้วปิดเรื่องเป็น 'deployed' ทันที (คำถามไม่ต้องรอผู้ดูแลอนุมัติ)",
+    "ส่งคำตอบของคำถาม (type='question'): IssueMate สร้างไฟล์ PDF คำตอบภาษาไทยให้เองและแนบในคอมเมนต์ตอบผู้ถามเสมอ — หากไม่พบบั๊กจะปิดเรื่องเป็น 'deployed' ทันที แต่หากตรวจพบบั๊กจากคำถาม ให้ส่ง foundBug: true พร้อม reviewReason / fixInstructions เพื่อตั้งสถานะเรื่องเป็น 'ready_to_fix' ทิ้งไว้รอผู้ดูแลกดอนุมัติแก้ไข (ห้ามแก้โค้ดเองทันที)",
     {
       projectKey: z.string().optional().describe("รหัสโปรเจกต์ เช่น SMLAIACC"),
       code: z.string().describe("รหัสคำถาม เช่น SMLAIACC-12"),
       agentName: z.string().default("Antigravity"),
       answer: z
         .string()
-        .describe("คำตอบฉบับเต็มเป็นข้อความธรรมดา (ขึ้นบรรทัดใหม่ได้) — ใช้เป็นทั้งเนื้อหา PDF และข้อความคอมเมนต์"),
+        .describe("คำตอบฉบับเต็มสำหรับผู้ถาม (ข้อความธรรมดา ขึ้นบรรทัดใหม่ได้) — ใช้สร้างไฟล์ PDF คำตอบและโพสต์ตอบผู้ถามเสมอ"),
       files: z
         .array(InlineFileSchema)
         .optional()
         .describe("ไฟล์ประกอบเพิ่มเติม เช่น รูปหน้าจอ (ไม่ต้องแนบ PDF คำตอบ ระบบสร้างให้เอง)"),
+      foundBug: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("ตั้งเป็น true หากตรวจสอบคำถามแล้วพบบั๊กในระบบที่ต้องแก้ไขโค้ด (จะยังไม่แก้โค้ดทันที แต่ตอบผู้ถามแล้วตั้งสถานะเป็น ready_to_fix รอผู้ดูแลอนุมัติ)"),
+      reviewReason: z
+        .string()
+        .optional()
+        .describe("เมื่อพบบั๊กจากคำถาม: สาเหตุของบั๊กที่พบ (Root Cause) เพื่อบันทึกไว้รออนุมัติแก้ไข"),
+      fixInstructions: z
+        .string()
+        .optional()
+        .describe("เมื่อพบบั๊กจากคำถาม: แผนหรือคำสั่งในการแก้ไขโค้ดเมื่อผู้ดูแลอนุมัติแล้ว"),
+      targetFiles: z
+        .array(z.string())
+        .optional()
+        .describe("เมื่อพบบั๊กจากคำถาม: รายชื่อไฟล์ที่ต้องแก้ไข เช่น ['app/api/issues/route.ts']"),
+      deployCommand: z
+        .string()
+        .optional()
+        .describe("เมื่อพบบั๊กจากคำถาม: คำสั่งทดสอบและ Deploy เช่น 'npx tsc --noEmit && npx playwright test'"),
+      subtasks: z
+        .array(z.string())
+        .optional()
+        .describe("เมื่อพบบั๊กจากคำถาม: รายการ Checklist งานย่อยสำหรับการแก้ไข"),
     },
     async (args) => {
       const answer = args.answer.trim();
@@ -1222,14 +1257,24 @@ export function createIssueMateMcpServer(
       if (question.status !== "open" && question.status !== "reviewing") {
         throw new Error(`คำถาม #${normalized} ปิดไปแล้ว (สถานะ "${question.status}")`);
       }
-      // Questions are exempt today; going through the gate keeps answer_question bound by the same rule
-      await requireAiFixApproval(normalized, "deployed");
 
+      const hasBugToFix = Boolean(
+        args.foundBug ||
+          args.fixInstructions?.trim() ||
+          args.reviewReason?.trim() ||
+          (args.targetFiles && args.targetFiles.length > 0)
+      );
+
+      if (!hasBugToFix) {
+        await requireAiFixApproval(normalized, "deployed");
+      }
+
+      const now = new Date().toISOString();
       const agentName = formatTokenActorIdentity(tokenUser, args.agentName);
       const pdf = await renderAnswerPdf(question, {
         body: answer,
         answeredBy: agentName,
-        answeredAt: new Date().toISOString(),
+        answeredAt: now,
       });
       const pdfFile = await uploadBufferToMinio({
         buffer: pdf,
@@ -1239,6 +1284,84 @@ export function createIssueMateMcpServer(
         uploaderEmail: tokenUser?.ownerEmail,
       });
       const extraFiles = await uploadInlineFiles(args.files, agentName, tokenUser?.ownerEmail);
+
+      if (hasBugToFix) {
+        const bugReason = args.reviewReason?.trim() || "ตรวจพบจุดที่ต้องแก้ไขในระบบจากคำถามนี้";
+        const bugPlan = args.fixInstructions?.trim() || "ดำเนินการแก้ไขโค้ดตามสาเหตุที่ตรวจพบหลังผู้ดูแลอนุมัติ";
+        const commentBody = [
+          answer,
+          "",
+          "---",
+          `🛠️ **ตรวจพบบั๊กจากคำถามนี้ — ตั้งสถานะเป็น \`ready_to_fix\` (รอผู้ดูแลอนุมัติให้ AI แก้ไข)**:`,
+          `- **สาเหตุที่พบ**: ${bugReason}`,
+          `- **แผนการแก้ไข**: ${bugPlan}`,
+          args.targetFiles && args.targetFiles.length > 0
+            ? `- **ไฟล์ที่ต้องแก้ไข**: \`${args.targetFiles.join("`, `")}\``
+            : "",
+          args.deployCommand ? `- **คำสั่งทดสอบ/Deploy**: \`${args.deployCommand}\`` : "",
+          `- ⏳ **สถานะการแก้ไขโค้ด**: ยังไม่ได้แก้ไขโค้ด (รอผู้ดูแลกด "อนุมัติให้ AI แก้ไข" ในหน้าเว็บ)`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const patchSubtasks: SubtaskItem[] | undefined =
+          args.subtasks && args.subtasks.length > 0
+            ? args.subtasks.map((title) => ({
+                id: crypto.randomUUID(),
+                title: title.trim(),
+                completed: false,
+                assignee: "Antigravity",
+              }))
+            : undefined;
+
+        await addIssueComment(normalized, {
+          author: agentName,
+          role: "Antigravity Agent",
+          body: commentBody,
+          attachments: [pdfFile, ...extraFiles],
+          isResolution: false,
+        });
+
+        const updated = await updateIssue(normalized, {
+          status: "ready_to_fix",
+          assignee: "Antigravity",
+          subtasks: patchSubtasks,
+          reviewMeta: {
+            decision: "fix",
+            reviewedBy: agentName,
+            reviewedAt: now,
+            reviewReason: bugReason,
+            fixInstructions: bugPlan,
+            targetFiles: args.targetFiles,
+            deployCommand: args.deployCommand,
+          },
+          aiSummary: `ตอบคำถามแล้ว · พบบั๊กที่ต้องแก้ไข (รอผู้ดูแลอนุมัติ): ${bugReason}`,
+          actor: agentName,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  status: "answered_and_queued_for_approval",
+                  code: updated.code,
+                  currentStatus: updated.status,
+                  aiFixAllowed: false,
+                  approval: "pending",
+                  nextStep:
+                    "ส่งคำตอบพร้อมไฟล์ PDF ให้ผู้ถามเรียบร้อยแล้ว และตั้งสถานะเป็น ready_to_fix รอผู้ดูแลกดอนุมัติในหน้าเว็บ — ห้ามแก้โค้ดหรือ Deploy จนกว่า aiFixAllowed จะเป็น true",
+                  pdf: { name: pdfFile.name, url: pdfFile.url, size: pdfFile.size },
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
       const updated = await addIssueComment(normalized, {
         author: agentName,
         role: "Antigravity Agent",
