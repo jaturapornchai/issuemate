@@ -47,6 +47,7 @@ export async function GET(req: Request) {
     const status = (searchParams.get("status") as IssueStatusFilter) || undefined;
     const type = (searchParams.get("type") as IssueType | "all") || undefined;
     const priority = (searchParams.get("priority") as IssuePriority | "all") || undefined;
+    const reporter = searchParams.get("reporter") || undefined;
     const assignee = searchParams.get("assignee") || undefined;
     const label = searchParams.get("label") || undefined;
     const search = searchParams.get("search") || undefined;
@@ -55,17 +56,21 @@ export async function GET(req: Request) {
     const rawAiApproval = searchParams.get("aiApproval");
     const aiApproval =
       rawAiApproval === "awaiting" || rawAiApproval === "approved" ? rawAiApproval : undefined;
+    const rawLimit = Number(searchParams.get("limit") || 0);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : undefined;
 
     const issues = await listIssues({
       projectKey: scope,
       status,
       type,
       priority,
+      reporter,
       assignee,
       label,
       search,
       sortBy,
       sortDir,
+      limit,
       aiApproval,
     });
     return NextResponse.json({ issues });

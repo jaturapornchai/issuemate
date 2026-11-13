@@ -19,6 +19,7 @@ import type {
   WontFixCategory,
 } from "./types";
 import { WONT_FIX_CATEGORIES } from "./types";
+import { notifyIssueEvent, validateWebhookUrl } from "./notifications";
 
 export function normalizeProjectKey(raw: string): string {
   return raw
@@ -228,6 +229,25 @@ export async function setProjectAiAutoApproval(
   return { ...res, _id: String(res._id) };
 }
 
+/** บันทึกหรือล้าง Webhook URL ของโปรเจกต์สำหรับแจ้งเตือนอัตโนมัติ */
+export async function setProjectWebhookUrl(
+  key: string,
+  webhookUrl: string
+): Promise<ProjectRecord> {
+  const { projects } = await getCollections();
+  const normalized = normalizeProjectKey(key);
+  const validUrl = validateWebhookUrl(webhookUrl);
+  const now = new Date().toISOString();
+  const updateDoc = validUrl
+    ? { $set: { webhookUrl: validUrl, updatedAt: now } }
+    : { $unset: { webhookUrl: "" as const }, $set: { updatedAt: now } };
+  const res = await projects.findOneAndUpdate({ key: normalized }, updateDoc, {
+    returnDocument: "after",
+  });
+  if (!res) throw new Error(`ไม่พบโปรเจกต์รหัส ${normalized}`);
+  return { ...res, _id: String(res._id) };
+}
+
 /** Project keys whose AI auto mode is on (optionally limited to a scope) */
 async function listAutoApproveProjectKeys(): Promise<string[]> {
   const { projects } = await getCollections();
@@ -265,6 +285,7 @@ export interface ListIssuesFilter {
   status?: IssueStatusFilter;
   type?: IssueType | "all";
   priority?: IssuePriority | "all";
+  reporter?: string;
   assignee?: string;
   label?: string;
   search?: string;
@@ -311,8 +332,20 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
     query.priority = filter.priority;
   }
 
+  if (filter.reporter && filter.reporter !== "all") {
+    const cleanReporter = filter.reporter.replace(/\s*[[<].*$/, "").trim();
+    if (cleanReporter) {
+      const escapedReporter = cleanReporter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.reporter = new RegExp(`^\\s*${escapedReporter}(?:\\s*[[<].*)?\\s*$`, "i");
+    }
+  }
+
   if (filter.assignee && filter.assignee !== "all") {
-    query.assignee = filter.assignee;
+    if (filter.assignee === "ยังไม่ระบุผู้รับผิดชอบ") {
+      query.assignee = { $in: ["", "ยังไม่ระบุผู้รับผิดชอบ"] };
+    } else {
+      query.assignee = filter.assignee;
+    }
   }
 
   if (filter.label && filter.label !== "all") {
@@ -361,7 +394,7 @@ export async function listIssues(filter: ListIssuesFilter = {}): Promise<IssueRe
       ? { createdAt: sortOrder, number: sortOrder }
       : { [sortField]: sortOrder, createdAt: -1, number: -1 };
 
-  const limit = Math.min(filter.limit || 200, 500);
+  const limit = Math.min(Math.max(filter.limit || 200, 1), 1000);
   const rankOrder = ENUM_SORT_ORDER[sortField];
   const docs = rankOrder
     ? await issues
@@ -642,7 +675,17 @@ export async function createIssue(input: {
   };
 
   const res = await issues.insertOne(doc);
-  return { ...doc, _id: String(res.insertedId) };
+  const created: IssueRecord = { ...doc, _id: String(res.insertedId) };
+  if (created.priority === "critical" || created.type === "incident") {
+    notifyIssueEvent({
+      event: "issue.created_urgent",
+      issue: created,
+      project: projectUpdate,
+      actor: reporter,
+      summary: `แจ้งเรื่องระดับด่วน (${created.priority.toUpperCase()} / ${created.type})`,
+    });
+  }
+  return created;
 }
 
 function toggleEmojiMap(
@@ -1021,7 +1064,33 @@ export async function updateIssue(
   }
   const updated = await issues.findOne({ code: normalized });
   if (!updated) throw new Error("Update failed");
-  return { ...updated, _id: String(updated._id) };
+  const result: IssueRecord = { ...updated, _id: String(updated._id) };
+  if (patch.status && patch.status !== existing.status) {
+    if (result.status === "ready_to_fix" && result.aiFixApproval?.status !== "approved") {
+      void getProjectByKey(result.projectKey).then((proj) => {
+        if (!proj?.aiAutoApproval?.enabled || result.type === "question") {
+          notifyIssueEvent({
+            event: "issue.awaiting_ai_approval",
+            issue: result,
+            project: proj,
+            actor,
+            summary: result.reviewMeta?.reviewReason || "รีวิวเสร็จแล้ว รอผู้ดูแลกดอนุมัติให้ AI แก้ไข",
+          });
+        }
+      });
+    } else if (result.status === "deployed") {
+      void getProjectByKey(result.projectKey).then((proj) => {
+        notifyIssueEvent({
+          event: "issue.deployed",
+          issue: result,
+          project: proj,
+          actor,
+          summary: result.reviewMeta?.deployResult || "แก้ไขและอัปเดตระบบเรียบร้อยแล้ว",
+        });
+      });
+    }
+  }
+  return result;
 }
 
 export async function addIssueComment(
@@ -1354,6 +1423,9 @@ export async function getMonitorStats(projectKey?: string | string[]): Promise<M
     byType,
     byPriority,
     reporterQuality: Array.from(reporterMap.values()).sort((a, b) => b.total - a.total).slice(0, 6),
+    byReporter: Array.from(reporterMap.values())
+      .sort((a, b) => b.total - a.total)
+      .map(({ reporter, total }) => ({ reporter, total })),
     byAssignee: Array.from(assigneeMap.values()).sort((a, b) => b.total - a.total),
     recentActivities: recentActivities.slice(0, 25),
   };

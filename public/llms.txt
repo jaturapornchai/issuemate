@@ -1,35 +1,42 @@
-# IssueMate — AI-Ready GitHub-Style Issue Tracker, Roadmap & Live Monitor (MCP v2.0)
+# IssueMate — AI-Ready DevOps Issue Tracker, Question Desk & Admin Approval Gate (MCP v3.0)
 
-> ระบบบริหารจัดการปัญหา (Bug Tracker), กระดานโหวตไอเดียและแผนพัฒนาผลิตภัณฑ์ (Feature Voting & Product Roadmap) รองรับการแยกหลายโปรเจกต์ แนบรูปภาพและเอกสารหลายไฟล์ (รวมถึงกด Ctrl+V วางภาพแคปหน้าจอ) เก็บลง MinIO S3 และฐานข้อมูล MongoDB พร้อมเชื่อมต่อกับ AI Agents ทุกตัวผ่าน MCP Server v2.0 และ REST API
+> ระบบบริหารจัดการปัญหา (Bug & Incident Tracker), ศูนย์รับคำถามพร้อมสร้างคู่มือ PDF ภาษาไทยอัตโนมัติ, กระดานโหวตไอเดียและแผนพัฒนาผลิตภัณฑ์ (Feature Voting & Product Roadmap) สำหรับทีมพัฒนาและ AI Agents (Antigravity / Claude Code) บนโดเมนจริง `https://issue.dedezoom.com`
 
-## Core Features (Inspired by Top GitHub Projects: Plane, Huly, Fider, Kaneo & Pile)
-- Multi-Project Workspaces: แยกโปรเจกต์อิสระและสร้างโปรเจกต์ใหม่ได้ทันที (เช่น BCAI, POS, INFRA)
-- Multi-File & Clipboard Paste (Ctrl+V): ลากวางรูปภาพหลายภาพและเอกสารหลายไฟล์ หรือกด Ctrl+V วางภาพแคปหน้าจออัปโหลดเข้า MinIO ทันที
-- Sub-tasks & AI Checklist Breakdown: แตกงานย่อยเป็น Checklist พร้อมหลอดความคืบหน้า % และปุ่มให้ AI แตกงานย่อยอัตโนมัติ
-- GitHub-Style Emoji Reactions & Linked Issues: กดส่งอีโมจิ (`👍`, `❤️`, `🎉`, `🚀`, `👀`) บน Issue และ Comment พร้อมผูก Issue ที่เกี่ยวข้อง (`relatedCodes`)
-- Live Duplicate / Similar Issue Detector: ตรวจจับเรื่องซ้ำอัตโนมัติขณะกำลังพิมพ์หัวข้อแจ้งปัญหาใหม่
-- Feature Voting & Product Roadmap Portal: กระดานจัดอันดับความต้องการยอดนิยม (Upvote Leaderboard) และติดตาม 4 ระยะ (Proposed -> In Development -> Review -> Shipped)
-- Command Palette (`Ctrl+K`): ค้นหาข้ามโปรเจกต์และสั่งงานด่วนจากคีย์บอร์ด
-- Live Monitor Dashboard: ติดตาม KPI, SLA, งานวิกฤตค้างอยู่ (Critical Watchlist), ภาระงานทีม (Team Workload) และ Live Activity Stream
+## 6 สถานะใน DevOps Pipeline (`IssueStatus`)
+1. `open` — **1. รอรีวิว (Pending Antigravity)**
+2. `reviewing` — **2. กำลังรีวิว (Antigravity Reviewing)**
+3. `ready_to_fix` — **3. รอแก้ (Ready for Antigravity)** — รอผู้ดูแลอนุมัติ (`aiFixApproval.status = "approved"`) หรือเปิดโหมดอัตโนมัติของโปรเจกต์ (`project.aiAutoApproval.enabled`)
+4. `fixing` — **4. กำลังแก้/Deploy (Antigravity Fixing & Deploying)**
+5. `deployed` — **5. Deploy แล้ว (Deployed & Verified)**
+6. `wont_fix` — **6. ไม่แก้ (Won't Fix / Rejected)** — บังคับระบุหมวดเหตุผล (`wontFixCategory`: `test_error`, `duplicate`, `by_design`, `cannot_reproduce`, `other`)
 
-## MCP Server v2.0 Endpoints & 14 Tools for AI Agents
-- Streamable HTTP Endpoints: `http://localhost:3300/mcp` และ `http://localhost:3300/api/mcp`
-- Stdio Command: `npx tsx D:/issuemate/mcp-stdio.ts`
-- MCP Resources: `issuemate://context`
-- MCP Prompts: `ai-triage-and-plan`, `ai-collaborate-on-issue`
+## ฟีเจอร์หลัก (Core Features)
+- **Multi-Project Workspaces & Granular Permissions**: แยกโปรเจกต์อิสระ พร้อมกำหนดสิทธิ์รายโปรเจกต์ (`viewer`, `question_only`, `reporter`, `developer`, `project_admin`)
+- **Admin Approval Gate (`lib/ai-approval.ts`)**: ป้องกัน AI แก้ไขโค้ดโดยพลการ ต้องได้รับอนุมัติจากผู้ดูแลผ่านหน้าเว็บก่อนเข้าสู่สถานะ `fixing` / `deployed` (และสำหรับเรื่องประเภท `question` หาก AI ตรวจพบบั๊กจากคำถาม จะส่งคำตอบพร้อม PDF ให้ผู้ถามก่อน แล้วตั้งสถานะเป็น `ready_to_fix` รอผู้ดูแลกดอนุมัติเสมอ)
+- **Filter & Export**: กรองตามโปรเจกต์, สถานะ, ประเภท, ความเร่งด่วน, ผู้แจ้ง (`reporter` + ปุ่มด่วน "เรื่องของฉัน"), ผู้ดูแล (`assignee`), ค้นหาแบบ Debounce, ปุ่มโหลดเพิ่ม (Pagination) และส่งออกตารางเป็นไฟล์ CSV (UTF-8 BOM เปิดใน Excel ได้ทันที)
+- **Multi-File & Clipboard Paste (`Ctrl+V`) + Image Annotator**: แนบรูปภาพและเอกสารหลายไฟล์ เก็บลง MinIO S3 พร้อมเครื่องมือวาดวงกลม ลูกศร และเบลอข้อมูลลับบนหน้าเว็บ
+- **Webhook & Telegram Notifications**: แจ้งเตือนอัตโนมัติเมื่อมีเรื่องด่วน (`critical` / `incident`), เรื่องรออนุมัติให้ AI แก้ไข (`ready_to_fix`), ตอบคำถามเสร็จ (`question.answered`) หรือ Deploy สำเร็จ (`deployed`)
 
-### Available MCP Tools (14 Tools):
-1. `get_ai_context`: เรียกเป็นอันดับแรก! ดึงรายชื่อโปรเจกต์ ค่า Enum ที่ถูกต้อง และงานด่วนทั้งหมดในคำสั่งเดียว
-2. `converse_on_issue`: ให้ AI เข้ามาพูดคุยตอบกลับ แนบไฟล์เข้า MinIO ติ๊กถูกงานย่อย กดอีโมจิ และเปลี่ยนสถานะ/ปิดงานในคำสั่งเดียว
-3. `claim_and_plan_issue`: ให้ AI รับงาน (`in_progress`), บันทึกบทวิเคราะห์ (`aiSummary`), และสร้างรายการงานย่อย (`subtasks`)
-4. `create_issue`: สร้าง Issue ใหม่ รองรับการส่ง `subtasks`, แนบไฟล์ (`files` ข้อความหรือ Base64) เข้า MinIO โดยตรง, สร้างโปรเจกต์อัตโนมัติ และตรวจเรื่องซ้ำ
-5. `batch_create_issues`: สร้างหลาย Issues พร้อมกันจากการสแกนโค้ดหรือแตกงานจาก PRD
-6. `find_similar_issues`: ค้นหาเรื่องที่คล้ายคลึงกันเพื่อป้องกันการแจ้งซ้ำ
-7. `manage_subtasks`: เพิ่มหรือติ๊กถูกงานย่อยตามลำดับข้อ (`1, 2, ...`) หรือชื่อเรื่อง
-8. `get_issue`: อ่านรายละเอียดเชิงลึกของ Issue ไฟล์แนบ คอมเมนต์ทั้งหมด และประวัติ Timeline
-9. `list_issues`: ค้นหาและกรองรายการ Issues
-10. `update_issue`: อัปเดตสถานะ ความสำคัญ ผูกเรื่อง (`relatedCodes`) หรือปิด Issue
-11. `add_comment`: เพิ่มความคิดเห็นพร้อมแนบไฟล์และสั่งปิด/เปิด Issue
-12. `list_projects`: ดึงรายการโปรเจกต์พร้อมสถิติงานค้าง
-13. `create_project`: สร้างโปรเจกต์ใหม่
-14. `get_monitor_summary`: ดึงข้อมูลสรุป Monitor Dashboard และ SLA
+## MCP Server v3.0 Endpoints & 16 Tools
+- **Production Streamable HTTP Endpoint**: `https://issue.dedezoom.com/api/mcp` (ยืนยันตัวตนด้วย `Authorization: Bearer ism_live_<40-hex>`)
+- **Stdio Command**: `npx tsx D:/issuemate/mcp-stdio.ts`
+- **MCP Resources**: `issuemate://context`
+- **MCP Prompts**: `antigravity-review-issue`, `antigravity-fix-and-deploy`
+
+### รายชื่อ MCP Tools ทั้ง 16 ตัว:
+1. `get_ai_context` — ดึงภาพรวมโปรเจกต์ คิวงานทั้ง 6 สถานะ และค่า Enum ที่ถูกต้องทั้งหมด
+2. `submit_claude_review` — บันทึกผลการรีวิวของ AI (`decision = "fix"` -> `ready_to_fix` หรือ `"wont_fix"` -> `wont_fix` พร้อมหมวด `wontFixCategory`)
+3. `claim_for_fix` — ล็อกเรื่องที่ได้รับอนุมัติแล้วเข้าสู่สถานะ `fixing`
+4. `mark_deployed` — บันทึกผลการแก้ไข ทดสอบ และ Deploy สำเร็จ (`deployed`)
+5. `claim_question` — ล็อกเรื่องประเภทคำถาม (`question`) เพื่อค้นหาคำตอบจากโค้ดและฐานข้อมูล
+6. `answer_question` — ตอบคำถามพร้อมสร้างไฟล์คู่มือ PDF ภาษาไทยแนบกลับให้ผู้ถามอัตโนมัติ (รองรับ `foundBug: true` เพื่อตั้งสถานะเป็น `ready_to_fix` รอผู้ดูแลอนุมัติแก้โค้ด)
+7. `list_projects` — ดึงรายชื่อโปรเจกต์ทั้งหมดพร้อมสถิติงานค้าง
+8. `create_project` — สร้างโปรเจกต์ใหม่ (มี Confirmation Gate ป้องกัน AI สร้างโปรเจกต์ซ้ำโดยไม่ตั้งใจ)
+9. `list_issues` — ค้นหาและกรองรายการ Issues (รองรับ `projectKey`, `status`, `type`, `priority`, `reporter`, `assignee`, `aiApproval`, `search`, `limit`)
+10. `get_issue` — อ่านรายละเอียดเชิงลึกของ Issue ไฟล์แนบ คอมเมนต์ และประวัติ Timeline
+11. `find_similar_issues` — ค้นหาเรื่องที่คล้ายกันเพื่อป้องกันการแจ้งซ้ำ
+12. `create_issue` — สร้าง Issue ใหม่พร้อมแนบไฟล์เข้า MinIO S3
+13. `claim_and_plan_issue` — รับเรื่องเข้าสู่ขั้นตอนกำลังรีวิว (`reviewing`) พร้อมสร้างรายการงานย่อย (`subtasks`)
+14. `converse_on_issue` — พูดคุยตอบกลับ แนบไฟล์ ติ๊กงานย่อย กดอีโมจิ และเปลี่ยนสถานะในคำสั่งเดียว
+15. `update_issue_status` — อัปเดตสถานะ ความเร่งด่วน ผู้ดูแล หรือข้อมูล DevOps
+16. `get_monitor_summary` — ดึงสถิติภาพรวม SLA, ภาระงานทีม (`byAssignee`) และคุณภาพผู้แจ้ง (`reporterQuality` / `byReporter`)

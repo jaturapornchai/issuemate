@@ -17,6 +17,7 @@ import {
 } from "./issue-service";
 import { MAX_FILES_PER_REQUEST, uploadBufferToMinio } from "./minio";
 import { renderAnswerPdf } from "./answer-pdf";
+import { notifyIssueEvent } from "./notifications";
 import type { AiFixApproval, AttachmentItem, IssueStatus, SubtaskItem, WontFixCategory } from "./types";
 import { WONT_FIX_CATEGORIES } from "./types";
 import {
@@ -728,6 +729,8 @@ export function createIssueMateMcpServer(
         .enum(["all", "question", "incident", "bug", "deployment", "performance", "security", "feature"])
         .optional(),
       priority: z.enum(["all", "critical", "high", "medium", "low"]).optional(),
+      reporter: z.string().optional().describe("กรองตามชื่อผู้แจ้งเรื่อง (reporter)"),
+      assignee: z.string().optional().describe("กรองตามชื่อผู้ดูแล/ผู้รับผิดชอบ (assignee)"),
       search: z.string().optional(),
       limit: z.number().optional(),
       aiApproval: z
@@ -1369,6 +1372,14 @@ export function createIssueMateMcpServer(
         attachments: [pdfFile, ...extraFiles],
         isResolution: true,
         nextStatus: "deployed",
+      });
+      const project = await getProjectByKey(updated.projectKey);
+      notifyIssueEvent({
+        event: "question.answered",
+        issue: updated,
+        project,
+        actor: agentName,
+        summary: `ตอบคำถามและแนบไฟล์คู่มือ ${pdfFile.name} เรียบร้อยแล้ว`,
       });
       return {
         content: [

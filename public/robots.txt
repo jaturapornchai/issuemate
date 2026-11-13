@@ -22,4 +22,4 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
-Sitemap: http://localhost:3300/sitemap.xml
+Sitemap: https://issue.dedezoom.com/sitemap.xml

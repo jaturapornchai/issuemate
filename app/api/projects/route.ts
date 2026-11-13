@@ -5,6 +5,7 @@ import {
   deleteProjectByKey,
   normalizeProjectKey,
   setProjectAiAutoApproval,
+  setProjectWebhookUrl,
 } from "@/lib/issue-service";
 import {
   adminRequiredResponse,
@@ -66,15 +67,19 @@ export async function PATCH(req: Request) {
     if (!key) {
       return NextResponse.json({ error: "กรุณาระบุรหัสโปรเจกต์" }, { status: 400 });
     }
+    const check = validateUserProjectAction(user, key, "approve_ai_fix");
+    if (!check.allowed) {
+      return NextResponse.json({ error: check.reason, permission: check.permission }, { status: 403 });
+    }
+    if (typeof body.webhookUrl === "string") {
+      const project = await setProjectWebhookUrl(key, body.webhookUrl);
+      return NextResponse.json({ project });
+    }
     if (typeof body.aiAutoApproval !== "boolean") {
       return NextResponse.json(
         { error: "กรุณาระบุ aiAutoApproval เป็น true หรือ false" },
         { status: 400 }
       );
-    }
-    const check = validateUserProjectAction(user, key, "approve_ai_fix");
-    if (!check.allowed) {
-      return NextResponse.json({ error: check.reason, permission: check.permission }, { status: 403 });
     }
     const project = await setProjectAiAutoApproval(key, body.aiAutoApproval, {
       name: user.name,

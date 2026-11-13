@@ -182,11 +182,26 @@ export default function IssueMateAppPage() {
   const [statusFilter, setStatusFilter] = useState<IssueStatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<IssueType | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<IssuePriority | "all">("all");
+  const [reporterFilter, setReporterFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [aiApprovalFilter, setAiApprovalFilter] = useState<"all" | "awaiting">("all");
   const [isSavingAutoMode, setIsSavingAutoMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [issueLimit, setIssueLimit] = useState<number>(200);
   const [sortBy, setSortBy] = useState<string>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setDebouncedSearch("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(false);
@@ -336,7 +351,10 @@ export default function IssueMateAppPage() {
         if (statusFilter !== "all") params.set("status", statusFilter);
         if (typeFilter !== "all") params.set("type", typeFilter);
         if (priorityFilter !== "all") params.set("priority", priorityFilter);
-        if (searchQuery.trim()) params.set("search", searchQuery.trim());
+        if (reporterFilter !== "all") params.set("reporter", reporterFilter);
+        if (assigneeFilter !== "all") params.set("assignee", assigneeFilter);
+        if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+        if (issueLimit !== 200) params.set("limit", String(issueLimit));
         params.set("sortBy", sortBy);
         params.set("sortDir", sortDir);
         if (aiApprovalFilter !== "all") params.set("aiApproval", aiApprovalFilter);
@@ -383,8 +401,11 @@ export default function IssueMateAppPage() {
       statusFilter,
       typeFilter,
       priorityFilter,
+      reporterFilter,
+      assigneeFilter,
       aiApprovalFilter,
-      searchQuery,
+      debouncedSearch,
+      issueLimit,
       sortBy,
       sortDir,
       currentUser,
@@ -457,8 +478,12 @@ export default function IssueMateAppPage() {
     setStatusFilter("all");
     setTypeFilter("all");
     setPriorityFilter("all");
+    setReporterFilter("all");
+    setAssigneeFilter("all");
     setAiApprovalFilter("all");
     setSearchQuery("");
+    setDebouncedSearch("");
+    setIssueLimit(200);
   };
 
   const handleDrillDown = (f: MonitorDrillDown) => {
@@ -467,6 +492,8 @@ export default function IssueMateAppPage() {
     if (f.status) setStatusFilter(f.status);
     if (f.priority) setPriorityFilter(f.priority);
     if (f.type) setTypeFilter(f.type);
+    if (f.reporter) setReporterFilter(f.reporter);
+    if (f.assignee) setAssigneeFilter(f.assignee);
     setViewMode("table");
   };
 
@@ -489,6 +516,16 @@ export default function IssueMateAppPage() {
       key: "priority",
       label: `ความเร่งด่วน: ${PRIORITY_CONFIG[priorityFilter].label}`,
       clear: () => setPriorityFilter("all"),
+    },
+    reporterFilter !== "all" && {
+      key: "reporter",
+      label: `ผู้แจ้ง: ${reporterFilter}`,
+      clear: () => setReporterFilter("all"),
+    },
+    assigneeFilter !== "all" && {
+      key: "assignee",
+      label: `ผู้ดูแล: ${assigneeFilter}`,
+      clear: () => setAssigneeFilter("all"),
     },
     aiApprovalFilter === "awaiting" && {
       key: "ai-approval",
@@ -1310,6 +1347,94 @@ export default function IssueMateAppPage() {
                     </option>
                   ))}
                 </select>
+
+                {(() => {
+                  const reporterMap = new Map<string, number>();
+                  for (const item of monitorStats?.byReporter ?? monitorStats?.reporterQuality ?? []) {
+                    if (item.reporter) reporterMap.set(item.reporter, item.total);
+                  }
+                  for (const iss of issues) {
+                    const clean = (iss.reporter || "").replace(/\s*[[<].*$/, "").trim();
+                    if (clean && !reporterMap.has(clean)) {
+                      reporterMap.set(clean, 1);
+                    }
+                  }
+                  const myName = (currentUser?.name || currentUser?.email || "").trim();
+                  if (myName && !reporterMap.has(myName)) {
+                    reporterMap.set(myName, 0);
+                  }
+                  if (reporterFilter !== "all" && !reporterMap.has(reporterFilter)) {
+                    reporterMap.set(reporterFilter, 0);
+                  }
+                  const reporterOptions = Array.from(reporterMap.entries());
+                  return (
+                    <>
+                      {myName && (
+                        <button
+                          type="button"
+                          data-testid="filter-my-issues-pill"
+                          aria-pressed={reporterFilter === myName}
+                          onClick={() =>
+                            setReporterFilter((prev) => (prev === myName ? "all" : myName))
+                          }
+                          className={`btn btn-sm shrink-0 px-2 sm:px-2.5 ${
+                            reporterFilter === myName
+                              ? "border border-brand-400/40 bg-brand-400/15 text-brand-200"
+                              : "btn-secondary"
+                          }`}
+                          title={`แสดงเฉพาะเรื่องที่ฉันแจ้ง (${myName})`}
+                        >
+                          <span>เรื่องของฉัน</span>
+                        </button>
+                      )}
+                      <select
+                        value={reporterFilter}
+                        data-testid="reporter-filter-select"
+                        onChange={(e) => setReporterFilter(e.target.value)}
+                        aria-label="กรองตามผู้แจ้ง"
+                        className="select h-8 min-w-0 flex-1 pr-6 pl-2.5 text-xs sm:w-auto sm:flex-none sm:pr-8 sm:pl-3"
+                      >
+                        <option value="all">ทุกผู้แจ้ง</option>
+                        {reporterOptions.map(([rep, count]) => (
+                          <option key={rep} value={rep}>
+                            ผู้แจ้ง: {rep}{count > 0 ? ` (${count})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  );
+                })()}
+
+                {(() => {
+                  const assigneeMap = new Map<string, number>();
+                  for (const item of monitorStats?.byAssignee ?? []) {
+                    if (item.assignee) assigneeMap.set(item.assignee, item.total);
+                  }
+                  for (const iss of issues) {
+                    const a = (iss.assignee || "").trim() || "ยังไม่ระบุผู้รับผิดชอบ";
+                    if (!assigneeMap.has(a)) assigneeMap.set(a, 1);
+                  }
+                  if (assigneeFilter !== "all" && !assigneeMap.has(assigneeFilter)) {
+                    assigneeMap.set(assigneeFilter, 0);
+                  }
+                  const assigneeOptions = Array.from(assigneeMap.entries());
+                  return (
+                    <select
+                      value={assigneeFilter}
+                      data-testid="assignee-filter-select"
+                      onChange={(e) => setAssigneeFilter(e.target.value)}
+                      aria-label="กรองตามผู้ดูแล"
+                      className="select h-8 min-w-0 flex-1 pr-6 pl-2.5 text-xs sm:w-auto sm:flex-none sm:pr-8 sm:pl-3"
+                    >
+                      <option value="all">ทุกผู้ดูแล</option>
+                      {assigneeOptions.map(([assignee, count]) => (
+                        <option key={assignee} value={assignee}>
+                          ผู้ดูแล: {assignee}{count > 0 ? ` (${count})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1464,6 +1589,8 @@ export default function IssueMateAppPage() {
               onResetFilters={resetFilters}
               onCreate={canCreateAnything ? () => openCreateModalWithType(canReportIssue ? "bug" : "question") : undefined}
               autoApproveProjectKeys={autoApproveProjectKeys}
+              canLoadMore={issues.length >= issueLimit && issueLimit < 1000}
+              onLoadMore={() => setIssueLimit((prev) => Math.min(prev + 200, 1000))}
             />
           )}
 

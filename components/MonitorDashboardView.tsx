@@ -43,6 +43,8 @@ export interface MonitorDrillDown {
   status?: IssueStatusFilter;
   priority?: IssuePriority | "all";
   type?: IssueType | "all";
+  reporter?: string;
+  assignee?: string;
   projectKey?: string;
 }
 
@@ -493,7 +495,20 @@ export function MonitorDashboardView({
               ) : (
                 <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
                   {stats.byAssignee.map((a) => (
-                    <div key={a.assignee} className="flex items-center gap-3 rounded-lg px-1 py-1.5">
+                    <div
+                      key={a.assignee}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onDrillDown?.({ assignee: a.assignee, status: "all" })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onDrillDown?.({ assignee: a.assignee, status: "all" });
+                        }
+                      }}
+                      title={`คลิกเพื่อดูเรื่องที่ดูแลโดย ${a.assignee}`}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-1.5 py-1.5 transition hover:bg-white/[0.04]"
+                    >
                       <Avatar name={a.assignee} />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{a.assignee}</span>
                       <div className="flex shrink-0 items-center gap-3 text-xs text-fg-subtle tabular-nums">
@@ -527,7 +542,20 @@ export function MonitorDashboardView({
               ) : (
                 <div className="space-y-2">
                   {stats.reporterQuality.map((r) => (
-                    <div key={r.reporter} className="rounded-lg px-1 py-1.5">
+                    <div
+                      key={r.reporter}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onDrillDown?.({ reporter: r.reporter, status: "all" })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onDrillDown?.({ reporter: r.reporter, status: "all" });
+                        }
+                      }}
+                      title={`คลิกเพื่อดูเรื่องที่แจ้งโดย ${r.reporter}`}
+                      className="cursor-pointer rounded-lg px-1.5 py-1.5 transition hover:bg-white/[0.04]"
+                    >
                       <div className="flex items-center gap-3">
                         <Avatar name={r.reporter} />
                         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{r.reporter}</span>

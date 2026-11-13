@@ -114,6 +114,7 @@ export interface ProjectRecord {
   labels: Array<{ name: string; color: string }>;
   milestones: Array<{ id: string; title: string; dueDate?: string; status: "open" | "closed" }>;
   aiAutoApproval?: AiAutoApprovalSetting;
+  webhookUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -217,6 +218,11 @@ export interface MonitorStats {
     total: number;
     wontFix: number;
     byCategory: Partial<Record<WontFixCategory | "unspecified", number>>;
+  }>;
+  /** รายชื่อผู้แจ้งทั้งหมดพร้อมจำนวนเรื่อง สำหรับตัวกรองตามผู้แจ้ง (User Filter) */
+  byReporter?: Array<{
+    reporter: string;
+    total: number;
   }>;
   byAssignee: Array<{
     assignee: string;

@@ -16,6 +16,8 @@ import {
   FilterX,
   Plus,
   ListChecks,
+  Download,
+  ChevronDown,
 } from "lucide-react";
 import type { IssueRecord } from "@/lib/types";
 import { motion, rise } from "./ui/Motion";
@@ -29,6 +31,9 @@ import {
   StatusBadge,
   TypeBadge,
   PriorityBadge,
+  STATUS_CONFIG,
+  TYPE_CONFIG,
+  PRIORITY_CONFIG,
   CopyCodeButton,
   Avatar,
   formatThaiDateTime,
@@ -196,6 +201,58 @@ function UpvoteButton({ issue, onUpvote }: { issue: IssueRecord; onUpvote: (code
   );
 }
 
+function escapeCsvCell(raw: unknown): string {
+  const str = String(raw ?? "").replace(/\r?\n/g, " ").trim();
+  const safe = /^[=+\-@]/.test(str) ? `'${str}` : str;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function exportIssuesCsv(issues: IssueRecord[]): void {
+  if (typeof window === "undefined" || issues.length === 0) return;
+  const headers = [
+    "รหัสเรื่อง",
+    "โปรเจกต์",
+    "หัวข้อ",
+    "ประเภท",
+    "สถานะ",
+    "ความเร่งด่วน",
+    "ผู้แจ้ง",
+    "ผู้ดูแล",
+    "วันที่สร้าง",
+    "วันที่อัปเดต",
+    "คะแนนโหวต",
+    "ผลการตรวจสอบ/แก้ไข",
+  ];
+  const rows = issues.map((iss) => [
+    iss.code,
+    iss.projectKey,
+    iss.title,
+    TYPE_CONFIG[iss.type]?.label || iss.type,
+    STATUS_CONFIG[iss.status]?.label || iss.status,
+    PRIORITY_CONFIG[iss.priority]?.label || iss.priority,
+    iss.reporter || "",
+    iss.assignee || "ยังไม่มีผู้ดูแล",
+    formatThaiDateTime(iss.createdAt),
+    formatThaiDateTime(iss.updatedAt || iss.createdAt),
+    iss.upvotes || 0,
+    iss.reviewMeta?.deployResult || iss.reviewMeta?.reviewReason || "",
+  ]);
+  const csvContent =
+    "\uFEFF" +
+    [headers.map(escapeCsvCell).join(","), ...rows.map((r) => r.map(escapeCsvCell).join(","))].join(
+      "\r\n"
+    );
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `issuemate-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function IssuesTableView({
   issues,
   selectedCode,
@@ -210,6 +267,8 @@ export function IssuesTableView({
   onResetFilters,
   onCreate,
   autoApproveProjectKeys = [],
+  canLoadMore = false,
+  onLoadMore,
 }: {
   issues: IssueRecord[];
   selectedCode?: string;
@@ -224,6 +283,8 @@ export function IssuesTableView({
   onResetFilters?: () => void;
   onCreate?: () => void;
   autoApproveProjectKeys?: string[];
+  canLoadMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const approvalOf = (issue: IssueRecord) =>
     listApprovalChipState(issue, autoApproveProjectKeys.includes(issue.projectKey));
@@ -489,11 +550,36 @@ export function IssuesTableView({
           รายการ · เรียงตาม{SORT_LABEL[sortBy] || sortBy} ({sortDir === "desc" ? "ใหม่/มาก → เก่า/น้อย" : "เก่า/น้อย → ใหม่/มาก"})
           <span className="hidden lg:inline"> · คลิกหัวคอลัมน์เพื่อเรียง · คลิกรหัสเพื่อคัดลอก</span>
         </span>
-        <ResetColumnWidthsButton
-          isCustomized={isCustomized}
-          onReset={resetWidths}
-          testId="issues-reset-col-width-btn"
-        />
+        <div className="flex shrink-0 items-center gap-2">
+          {canLoadMore && onLoadMore && (
+            <button
+              type="button"
+              data-testid="issues-load-more-btn"
+              onClick={onLoadMore}
+              className="btn btn-secondary btn-xs"
+              title="โหลดรายการเพิ่มเติมอีก 200 รายการ"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+              <span>โหลดเพิ่ม</span>
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="export-issues-csv-btn"
+            disabled={issues.length === 0}
+            onClick={() => exportIssuesCsv(issues)}
+            className="btn btn-secondary btn-xs disabled:opacity-40"
+            title="ส่งออกรายการที่แสดงอยู่เป็นไฟล์ CSV (เปิดด้วย Excel ได้ทันที)"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export CSV</span>
+          </button>
+          <ResetColumnWidthsButton
+            isCustomized={isCustomized}
+            onReset={resetWidths}
+            testId="issues-reset-col-width-btn"
+          />
+        </div>
       </div>
     </div>
   );

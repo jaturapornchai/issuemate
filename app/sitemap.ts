@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3300";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://issue.dedezoom.com";
   return [
     {
       url: baseUrl,

@@ -910,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.3");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.4");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1685,6 +1685,53 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
         expect(saved, text).toMatchObject({ type: "question", priority: "low" });
         expect(saved.title.startsWith("[Question]"), saved.title).toBe(true);
       }
+
+      // 8.4 Filter by reporter (API + UI "เรื่องของฉัน" & reporter dropdown)
+      const byReporterRes = await request.get(
+        `/api/issues?projectKey=${projKey}&reporter=${encodeURIComponent("พนักงานบัญชี (ถามได้อย่างเดียว)")}`,
+        { headers: ADMIN }
+      );
+      expect(byReporterRes.status()).toBe(200);
+      const byReporterIssues = (await byReporterRes.json()).issues;
+      expect(byReporterIssues).toHaveLength(1);
+      expect(byReporterIssues[0].reporter).toBe("พนักงานบัญชี (ถามได้อย่างเดียว)");
+
+      await page.getByTestId("close-drawer-btn").click();
+      await expect(page.locator('[data-testid^="issue-row-"]')).toHaveCount(2);
+      await page.getByTestId("filter-my-issues-pill").click();
+      await expect(page.getByTestId("active-filter-reporter")).toBeVisible();
+      await expect(page.locator('[data-testid^="issue-row-"]')).toHaveCount(1);
+      await page.getByTestId("reporter-filter-select").selectOption("all");
+      await expect(page.locator('[data-testid^="issue-row-"]')).toHaveCount(2);
+
+      // 8.5 Filter by assignee + Export CSV button + Webhook SSRF guard + SEO/AI files
+      await page.getByTestId("assignee-filter-select").selectOption("Antigravity");
+      await expect(page.getByTestId("active-filter-assignee")).toBeVisible();
+      await expect(page.locator('[data-testid^="issue-row-"]')).toHaveCount(2);
+      await page.getByTestId("assignee-filter-select").selectOption("all");
+      await expect(page.getByTestId("export-issues-csv-btn")).toBeEnabled();
+
+      const badWebhook = await request.patch("/api/projects", {
+        headers: ADMIN,
+        data: { key: projKey, webhookUrl: "http://169.254.169.254/latest/meta-data" },
+      });
+      expect(badWebhook.status()).toBe(400);
+
+      const goodWebhook = await request.patch("/api/projects", {
+        headers: ADMIN,
+        data: { key: projKey, webhookUrl: "https://hooks.slack.com/services/T000/B000/X000" },
+      });
+      expect(goodWebhook.status()).toBe(200);
+      expect((await goodWebhook.json()).project.webhookUrl).toBe(
+        "https://hooks.slack.com/services/T000/B000/X000"
+      );
+
+      const robotsTxt = await (await request.get("/robots.txt")).text();
+      expect(robotsTxt).toContain("https://issue.dedezoom.com/sitemap.xml");
+      const llmsTxt = await (await request.get("/llms.txt")).text();
+      expect(llmsTxt).toContain("MCP v3.0");
+      expect(llmsTxt).toContain("https://issue.dedezoom.com/api/mcp");
+
       expect(errors).toEqual([]);
     } finally {
       await request.post("/api/auth/me", {
