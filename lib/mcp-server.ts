@@ -1103,6 +1103,7 @@ export function createIssueMateMcpServer(
           body: args.message,
           attachments: uploadedFiles,
           isResolution: args.newStatus === "deployed" || args.newStatus === "wont_fix",
+          reopenIfDeployed: false,
         });
       }
 

@@ -1103,6 +1103,8 @@ export async function addIssueComment(
     isResolution?: boolean;
     nextStatus?: IssueStatus;
     wontFixCategory?: WontFixCategory;
+    /** ค่าเริ่มต้น true: หากเรื่องอยู่สถานะ deployed (เสร็จแล้ว) และมีคอมเมนต์ใหม่ที่ไม่ใช่คำตอบปิดเรื่อง ให้เปิดกลับเป็น open (รอตรวจสอบ) */
+    reopenIfDeployed?: boolean;
   }
 ): Promise<IssueRecord> {
   const { issues } = await getCollections();
@@ -1151,10 +1153,19 @@ export async function addIssueComment(
     updatedAt: now,
   };
 
-  if (validNextStatus) {
+  const autoReopenFromDeployed =
+    !validNextStatus &&
+    !input.isResolution &&
+    input.reopenIfDeployed !== false &&
+    existing.status === "deployed" &&
+    pushedComments.length > 0;
+  const effectiveNextStatus: IssueStatus | undefined =
+    validNextStatus ?? (autoReopenFromDeployed ? "open" : undefined);
+
+  if (effectiveNextStatus) {
     applyStatusChange(
       existing,
-      { status: validNextStatus, wontFixCategory: input.wontFixCategory, actor: author, now },
+      { status: effectiveNextStatus, wontFixCategory: input.wontFixCategory, actor: author, now },
       { updateFields, unsetFields, timeline: pushedTimeline }
     );
   }

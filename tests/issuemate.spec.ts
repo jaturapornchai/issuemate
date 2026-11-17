@@ -910,7 +910,7 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await expect(page.getByTestId("comment-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("drawer-feedback-banner")).toContainText("สำเร็จ");
       await expect(page.getByTestId("global-action-feedback")).toContainText("เรียบร้อยแล้ว");
-      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.4");
+      await expect(page.getByTestId("app-version-deploy-info")).toContainText("v3.6.5");
 
       // Verify Official Resolution Badge appears and inline PDF viewer opens right inside the drawer!
       const resolution = page.locator('[data-testid^="comment-resolution-badge-"]').first();
@@ -1737,6 +1737,140 @@ test.describe("IssueMate v3: Masked Admin Gmail + Multi-Project Member Permissio
       await request.post("/api/auth/me", {
         headers: ADMIN,
         data: { action: "remove_allowed_user", email: askerEmail },
+      });
+      await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
+    }
+  });
+
+  test("9. Follow-up comment on a deployed issue reopens it to open (รอตรวจสอบ) while MCP converse_on_issue keeps deployed", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    const projKey = `RC${uniqueSuffix}`;
+    const reporterEmail = `rc.reporter.${uniqueSuffix}@gmail.com`;
+    const REPORTER = as(reporterEmail);
+
+    await request.post("/api/projects", {
+      headers: ADMIN,
+      data: { key: projKey, name: `โปรเจกต์ทดสอบคอมเมนต์ซ้ำ ${projKey}`, color: "#10b981" },
+    });
+    const addReporter = await request.post("/api/auth/me", {
+      headers: ADMIN,
+      data: {
+        action: "add_allowed_user",
+        email: reporterEmail,
+        name: "ผู้ทดสอบหน้าจอ (Reporter)",
+        role: "member",
+        allowedProjects: [projKey],
+        defaultPermission: "reporter",
+        projectPermissions: { [projKey]: "reporter" },
+      },
+    });
+    expect(addReporter.status()).toBe(200);
+
+    const tokenRes = await request.post("/api/mcp/tokens", {
+      headers: ADMIN,
+      data: {
+        name: "Antigravity Reopen Guard",
+        projectKey: projKey,
+        ownerEmail: TEST_ADMIN_EMAIL,
+        ownerName: "Super Admin",
+        agentRole: "antigravity_fixer",
+      },
+    });
+    expect(tokenRes.status()).toBe(201);
+    const tokenData = await tokenRes.json();
+    const token = tokenData.rawToken as string;
+
+    const getIssue = async (code: string) =>
+      (await (await request.get(`/api/issues/${code}`, { headers: ADMIN })).json()).issue;
+
+    const createDeployedIssue = async (title: string) => {
+      const created = await request.post("/api/issues", {
+        headers: ADMIN,
+        data: { projectKey: projKey, title, type: "bug", priority: "high" },
+      });
+      expect(created.status()).toBe(201);
+      const code = (await created.json()).issue.code as string;
+      const reviewed = await mcpTool(request, token, projKey, "submit_claude_review", {
+        code,
+        decision: "fix",
+        reviewReason: "พบจุดที่ต้องแก้",
+        fixInstructions: "แก้ไข CSS ตาราง",
+      });
+      expect(reviewed.json.result.isError).toBeFalsy();
+      const approved = await request.patch(`/api/issues/${code}`, {
+        headers: ADMIN,
+        data: { aiFixApproval: { status: "approved" } },
+      });
+      expect(approved.status()).toBe(200);
+      const claimed = await mcpTool(request, token, projKey, "claim_for_fix", { code });
+      expect(claimed.json.result.isError).toBeFalsy();
+      const deployed = await mcpTool(request, token, projKey, "mark_deployed", {
+        code,
+        deployResult: "แก้ไขและอัปเดตแล้ว",
+      });
+      expect(deployed.json.result.isError).toBeFalsy();
+      return code;
+    };
+
+    try {
+      // 9.1 MCP Guard: posting a plain UAT note via converse_on_issue without newStatus keeps deployed
+      const codeA = await createDeployedIssue("ตารางแท็บเงินมัดจำแสดงไม่ครบ (API + MCP)");
+      const uatNote = await mcpTool(request, token, projKey, "converse_on_issue", {
+        code: codeA,
+        agentName: "UAT Tester",
+        message: "✅ UAT ตรวจซ้ำผ่านแล้ว: หน้าจอใช้งานได้ตามปกติ",
+      });
+      expect(uatNote.json.result.isError).toBeFalsy();
+      const afterUat = await getIssue(codeA);
+      expect(afterUat.status).toBe("deployed");
+      expect(afterUat.closedAt).toBeTruthy();
+
+      // 9.2 API + Permission: a reporter (without change_status permission) commenting on deployed issue reopens it to open
+      const followUpRes = await request.post(`/api/issues/${codeA}/comments`, {
+        headers: REPORTER,
+        data: { body: "ลองเช็กในตารางอีกครั้ง ยังต้องปรับความกว้างคอลัมน์ต่อครับ" },
+      });
+      expect(followUpRes.status()).toBe(201);
+      const reopened = (await followUpRes.json()).issue;
+      expect(reopened.status).toBe("open");
+      expect(reopened.closedAt).toBeUndefined();
+      expect(reopened.closedBy).toBeUndefined();
+      expect(reopened.aiFixApproval).toBeUndefined();
+      const actions = reopened.timeline.map((t: { action: string }) => t.action);
+      expect(actions).toContain("ai_fix_approval_reset");
+      expect(actions).toContain("status_changed");
+
+      // 9.3 UI E2E: reporter opens a deployed ("เสร็จแล้ว") issue, submits a comment -> row badge updates to "รอตรวจสอบ"
+      const codeB = await createDeployedIssue("ปุ่มบันทึกไม่เคลียร์ค่าในตาราง (UI Reopen)");
+      const errors = watchErrors(page);
+      await loginBrowserAs(page, reporterEmail, baseURL!);
+      await page.goto("/");
+      await page.getByTestId(`project-item-${projKey}`).click();
+
+      const row = page.getByTestId(`issue-row-${codeB}`);
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await expect(row).toContainText("เสร็จแล้ว");
+
+      await row.click();
+      const drawer = page.getByTestId("issue-detail-drawer");
+      await expect(drawer).toBeVisible();
+
+      await page.getByTestId("comment-body-input").fill("ยังมีจุดที่ต้องแก้เพิ่มเติมในตารางด้านล่างครับ");
+      await page.getByTestId("send-comment-btn").click();
+
+      await expect(page.getByTestId("comment-feedback-banner")).toContainText("รอตรวจสอบ");
+      await expect(page.getByTestId("global-action-feedback")).toContainText("รอตรวจสอบ");
+      await expect(drawer.locator('span[title="รับเรื่องแล้ว รอทีมงานตรวจสอบ"]').first()).toBeVisible();
+      await expect(row.locator('span[title="รับเรื่องแล้ว รอทีมงานตรวจสอบ"]')).toContainText("รอตรวจสอบ");
+      expect(errors).toEqual([]);
+    } finally {
+      await request.delete(`/api/mcp/tokens?id=${tokenData.token?.id}`, { headers: ADMIN });
+      await request.post("/api/auth/me", {
+        headers: ADMIN,
+        data: { action: "remove_allowed_user", email: reporterEmail },
       });
       await request.delete(`/api/projects?key=${projKey}`, { headers: ADMIN });
     }

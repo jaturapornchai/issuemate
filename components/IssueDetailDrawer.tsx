@@ -355,6 +355,7 @@ export function IssueDetailDrawer({
     e.preventDefault();
     if (!commentBody.trim() && commentAttachments.length === 0) return;
     if (isUploadingReplyFiles || submitting) return;
+    const wasDeployed = issue.status === "deployed";
     setSubmitting(true);
     setDrawerError(null);
     setCommentFeedback(null);
@@ -368,7 +369,9 @@ export function IssueDetailDrawer({
       );
       const okMsg = options?.isResolution
         ? "ส่งคำตอบพร้อมไฟล์แนบ และปิดเรื่องว่าเรียบร้อยสำเร็จแล้ว"
-        : "ส่งข้อความสำเร็จแล้ว";
+        : wasDeployed && !options?.nextStatus
+          ? 'ส่งข้อความสำเร็จแล้ว — เปลี่ยนสถานะกลับเป็น "รอตรวจสอบ" เพื่อให้ทีมงานแก้ไขต่อ'
+          : "ส่งข้อความสำเร็จแล้ว";
       setCommentBody("");
       setCommentAttachments([]);
       setCommentFeedback({ type: "success", message: okMsg });

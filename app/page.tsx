@@ -621,6 +621,10 @@ export default function IssueMateAppPage() {
     attachments: AttachmentRecord[],
     options?: { isResolution?: boolean; nextStatus?: IssueStatus }
   ) => {
+    const prevStatus =
+      selectedIssue?.code === code
+        ? selectedIssue.status
+        : issues.find((i) => i.code === code)?.status;
     const res = await fetch(`/api/issues/${encodeURIComponent(code)}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -643,11 +647,15 @@ export default function IssueMateAppPage() {
         prev && prev.code === data.issue.code ? data.issue : prev
       );
     }
+    const reopened =
+      !options?.isResolution && prevStatus === "deployed" && data.issue?.status === "open";
     showFeedback(
       "success",
       options?.isResolution
         ? `ส่งคำตอบและปิดเรื่อง ${code} เรียบร้อยแล้ว`
-        : `ส่งข้อความใน ${code} เรียบร้อยแล้ว`
+        : reopened
+          ? `ส่งข้อความใน ${code} เรียบร้อยแล้ว — เปลี่ยนสถานะกลับเป็น "รอตรวจสอบ"`
+          : `ส่งข้อความใน ${code} เรียบร้อยแล้ว`
     );
     await fetchAllData();
   };
